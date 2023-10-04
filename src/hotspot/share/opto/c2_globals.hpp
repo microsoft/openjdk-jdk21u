@@ -470,7 +470,7 @@
   develop(bool, TracePostallocExpand, false, "Trace expanding nodes after"  \
           " register allocation.")                                          \
                                                                             \
-  product(bool, ReduceAllocationMerges, true, DIAGNOSTIC,                   \
+  product(bool, ReduceAllocationMerges, true,                               \
           "Try to simplify allocation merges before Scalar Replacement")    \
                                                                             \
   notproduct(bool, TraceReduceAllocationMerges, false,                      \
