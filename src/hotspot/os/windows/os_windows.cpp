@@ -3955,6 +3955,9 @@ bool   os::win32::_is_windows_server         = false;
 // including the latest one (as of this writing - Windows Server 2012 R2)
 bool   os::win32::_has_exit_bug              = true;
 
+typedef BOOL(WINAPI* LPFN_GET_LOGICAL_PROCESSOR_INFORMATION_EX)(
+    LOGICAL_PROCESSOR_RELATIONSHIP, PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, PDWORD);
+
 void os::win32::initialize_system_info() {
   SYSTEM_INFO si;
   GetSystemInfo(&si);
@@ -3962,7 +3965,50 @@ void os::win32::initialize_system_info() {
   OSInfo::set_vm_allocation_granularity(si.dwAllocationGranularity);
   _processor_type  = si.dwProcessorType;
   _processor_level = si.wProcessorLevel;
-  set_processor_count(si.dwNumberOfProcessors);
+
+  DWORD logicalProcessors = 0;
+  LPFN_GET_LOGICAL_PROCESSOR_INFORMATION_EX glpiex;
+
+  glpiex = (LPFN_GET_LOGICAL_PROCESSOR_INFORMATION_EX)GetProcAddress(
+      GetModuleHandle(TEXT("kernel32")),
+      "GetLogicalProcessorInformationEx");
+
+  if (glpiex != NULL) {
+    LOGICAL_PROCESSOR_RELATIONSHIP relationshipType = RelationGroup;
+    PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX pSytemLogicalProcessorInfo = NULL;
+    DWORD returnedLength = 0;
+
+    // https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getlogicalprocessorinformationex
+    if (!glpiex(relationshipType, pSytemLogicalProcessorInfo, &returnedLength)) {
+      DWORD lastError = GetLastError();
+
+      if (lastError == ERROR_INSUFFICIENT_BUFFER) {
+        pSytemLogicalProcessorInfo = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)os::malloc(returnedLength, mtInternal);
+
+        if (NULL == pSytemLogicalProcessorInfo) {
+          warning("os::malloc() failed to allocate %ld bytes for GetLogicalProcessorInformationEx buffer", returnedLength);
+        } else if (!glpiex(relationshipType, pSytemLogicalProcessorInfo, &returnedLength)) {
+          warning("GetLogicalProcessorInformationEx() failed: GetLastError->%ld.", GetLastError());
+        } else {
+          DWORD processorGroups = pSytemLogicalProcessorInfo->Group.ActiveGroupCount;
+
+          for (DWORD i = 0; i < processorGroups; i++) {
+            PROCESSOR_GROUP_INFO groupInfo = pSytemLogicalProcessorInfo->Group.GroupInfo[i];
+            logicalProcessors += groupInfo.ActiveProcessorCount;
+          }
+
+          assert(logicalProcessors > 0, "Must find at least 1 logical processor");
+        }
+
+        os::free(pSytemLogicalProcessorInfo);
+      }
+      else {
+        warning("GetLogicalProcessorInformationEx() failed: GetLastError->%ld.", lastError);
+      }
+    }
+  }
+
+  set_processor_count(logicalProcessors > 0 ? logicalProcessors : si.dwNumberOfProcessors);
 
   MEMORYSTATUSEX ms;
   ms.dwLength = sizeof(ms);
