@@ -1,0 +1,14 @@
+title: Reduce Allocation Merges
+- work_item: 1612900 
+- jbs_bug: JDK-8287061
+- author: JohnTortugo
+- owner: JohnTortugo
+- contributors:
+  - dhanalla
+- details:
+  - New IR node (suggested by V. Kozlov), named SafePointScalarMergeNode, to represent a set of SafePointScalarObjectNode;
+  - Each scalar replaceable input participating in a merge will get a SafePointScalarObjectNode like if it weren't part of a merge;
+  - Add a new Class to support the rematerialization of SR objects that are part of a merge;
+  - Patch HotSpot to be able to serialize and deserialize debug information related to allocation merges;
+  - Patch C2 to generate unique types for SR objects participating in some allocation merges.
+- release_note: Nnew feature to improve the performance of Escape Analysis by increasing the number of opportunities for Scalar Replacement.
