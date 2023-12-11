@@ -11,4 +11,4 @@ title: Reduce Allocation Merges
   - Add a new Class to support the rematerialization of SR objects that are part of a merge;
   - Patch HotSpot to be able to serialize and deserialize debug information related to allocation merges;
   - Patch C2 to generate unique types for SR objects participating in some allocation merges.
-- release_note: Nnew feature to improve the performance of Escape Analysis by increasing the number of opportunities for Scalar Replacement.
+- release_note: New feature to improve the performance of Escape Analysis by increasing the number of opportunities for Scalar Replacement.
