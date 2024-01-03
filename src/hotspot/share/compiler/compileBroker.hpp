@@ -88,6 +88,9 @@ class CompileQueue : public CHeapObj<mtCompiler> {
   CompileTask* _first_stale;
 
   volatile int _size;
+  int _peak_size;
+  uint _total_added;
+  uint _total_removed;
 
   void purge_stale_tasks();
  public:
@@ -96,6 +99,9 @@ class CompileQueue : public CHeapObj<mtCompiler> {
     _first = nullptr;
     _last = nullptr;
     _size = 0;
+    _total_added = 0;
+    _total_removed = 0;
+    _peak_size = 0;
     _first_stale = nullptr;
   }
 
@@ -112,6 +118,9 @@ class CompileQueue : public CHeapObj<mtCompiler> {
   bool         is_empty() const                  { return _first == nullptr; }
   int          size()     const                  { return _size;          }
 
+  int         get_peak_size()     const          { return _peak_size; }
+  uint        get_total_added()   const          { return _total_added; }
+  uint        get_total_removed() const          { return _total_removed; }
 
   // Redefine Classes support
   void mark_on_stack();
@@ -303,7 +312,8 @@ public:
                                  int hot_count,
                                  CompileTask::CompileReason compile_reason,
                                  TRAPS);
-
+  static CompileQueue* c1_compile_queue();
+  static CompileQueue* c2_compile_queue();
   static nmethod* compile_method(const methodHandle& method,
                                    int osr_bci,
                                    int comp_level,
