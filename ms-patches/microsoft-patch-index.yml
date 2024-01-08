@@ -17,6 +17,7 @@
 active-patches:
 # - ms-patches/microsoft-patch-index // this patch branch is required for all releases
   - ms-patches/reduce-allocation-merges
+  - ms-patches/8317562-jfr-compiler-queues
 
 
 ## Upstreamed Patches
