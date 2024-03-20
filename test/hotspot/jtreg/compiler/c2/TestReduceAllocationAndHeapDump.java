@@ -44,17 +44,13 @@ public class TestReduceAllocationAndHeapDump {
                 dumpDirectory.mkdir();
             }
 
-            String[] dumperArgs = {
-                "-server",
-                "-XX:CompileThresholdScaling=0.01",
-                "-XX:+HeapDumpAfterFullGC",
-                "-XX:HeapDumpPath=" + dumpDirectory.getAbsolutePath(),
-                "-XX:CompileCommand=compileonly,compiler.c2.HeapDumper::testIt",
-                "-XX:CompileCommand=exclude,compiler.c2.HeapDumper::dummy",
-                HeapDumper.class.getName()
-            };
-
-            ProcessBuilder pb = ProcessTools.createLimitedTestJavaProcessBuilder(dumperArgs);
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-server",
+								      "-XX:CompileThresholdScaling=0.01",
+								      "-XX:+HeapDumpAfterFullGC",
+								      "-XX:HeapDumpPath=" + dumpDirectory.getAbsolutePath(),
+								      "-XX:CompileCommand=compileonly,compiler.c2.HeapDumper::testIt",
+								      "-XX:CompileCommand=exclude,compiler.c2.HeapDumper::dummy",
+								      HeapDumper.class.getName());
             Process p = pb.start();
             OutputAnalyzer out = new OutputAnalyzer(p);
 
