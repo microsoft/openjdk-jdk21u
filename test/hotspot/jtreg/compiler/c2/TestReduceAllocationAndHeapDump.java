@@ -44,7 +44,8 @@ public class TestReduceAllocationAndHeapDump {
                 dumpDirectory.mkdir();
             }
 
-            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-server",
+            ProcessBuilder pb = ProcessTools.createLimitedTestJavaProcessBuilder(
+								      "-server",
 								      "-XX:CompileThresholdScaling=0.01",
 								      "-XX:+HeapDumpAfterFullGC",
 								      "-XX:HeapDumpPath=" + dumpDirectory.getAbsolutePath(),
