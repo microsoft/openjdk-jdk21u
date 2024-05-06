@@ -448,6 +448,7 @@ public final class ProcessTools {
      * @param command Arguments to pass to the java command.
      * @return The ProcessBuilder instance representing the java command.
      */
+    @SuppressWarnings("unchecked")
     private static ProcessBuilder createJavaProcessBuilder(String... command) {
         String javapath = JDKToolFinder.getJDKTool("java");
 
