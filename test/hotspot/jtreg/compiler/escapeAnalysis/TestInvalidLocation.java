@@ -59,7 +59,7 @@ public class TestInvalidLocation {
         }
     }
 
-    class Class1 {
+    static class Class1 {
         static Class0 Class1_sfield0 = new Class0();
     }
 }
