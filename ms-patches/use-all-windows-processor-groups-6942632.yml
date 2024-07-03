@@ -1,0 +1,10 @@
+title: Hotspot should be able to use more than 64 logical processors on Windows
+- work_item: 2087497
+- jbs_bug: JDK-6942632
+- author: swesonga
+- owner: swesonga
+- contributors:
+- details:
+  - Backport of https://github.com/openjdk/jdk/pull/17576.
+- release_note:
+  - Enables hotspot to use processors across all Windows processor groups on Windows 11/Windows Server 2022 and later.
