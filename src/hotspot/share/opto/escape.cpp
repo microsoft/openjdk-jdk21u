@@ -482,8 +482,13 @@ bool ConnectionGraph::can_reduce_phi_check_users(PhiNode* ophi) const {
       Node* addp = use;
       for (DUIterator_Fast jmax, j = addp->fast_outs(jmax); j < jmax; j++) {
         Node* use_use = addp->fast_out(j);
+	const Type* load_type = _igvn->type(use_use);
+
         if (!use_use->is_Load() || !use_use->as_Load()->can_split_through_phi_base(_igvn)) {
           NOT_PRODUCT(if (TraceReduceAllocationMerges) tty->print_cr("Can NOT reduce Phi %d on invocation %d. AddP user isn't a [splittable] Load(): %s", ophi->_idx, _invocation, use_use->Name());)
+          return false;
+        } else if (load_type->isa_narrowklass() || load_type->isa_klassptr()) {
+          NOT_PRODUCT(if (TraceReduceAllocationMerges) tty->print_cr("Can NOT reduce Phi %d on invocation %d. [Narrow] Klass Load: %s", ophi->_idx, _invocation, use_use->Name());)
           return false;
         }
       }
@@ -4101,6 +4106,20 @@ void ConnectionGraph::split_unique_types(GrowableArray<Node *>  &alloc_worklist,
         nmm->set_memory_at(ni, result);
       }
     }
+
+    // If we have crossed the 3/4 point of max node limit it's too risky
+    // to continue with EA/SR because we might hit the max node limit.
+    if (_compile->live_nodes() >= _compile->max_node_limit() * 0.75) {
+      if (_compile->do_reduce_allocation_merges()) {
+        _compile->record_failure(C2Compiler::retry_no_reduce_allocation_merges());
+      } else if (_invocation > 0) {
+        _compile->record_failure(C2Compiler::retry_no_iterative_escape_analysis());
+      } else {
+        _compile->record_failure(C2Compiler::retry_no_escape_analysis());
+      }
+      return;
+    }
+
     igvn->hash_insert(nmm);
     record_for_optimizer(nmm);
   }
