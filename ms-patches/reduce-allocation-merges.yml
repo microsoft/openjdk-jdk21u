@@ -11,4 +11,8 @@ title: Reduce Allocation Merges
   - Add a new Class to support the rematerialization of SR objects that are part of a merge;
   - Patch HotSpot to be able to serialize and deserialize debug information related to allocation merges;
   - Patch C2 to generate unique types for SR objects participating in some allocation merges.
+  - Fix for C2: Live Node limit exceeded limit after JDK-8316991
+  - Fix for C2: assert((uint)type <= T_CONFLICT && _zero_type[type] != nullptr) failed: bad type with -XX:-UseCompressedClassPointers
+  - Fix for C2: CTW fail with assert(adr_t->is_known_instance_field()) failed: instance
+  - Fix for C2: NPE in ArrayCreationTree.java with -XX:-UseCompressedOops
 - release_note: New feature to improve the performance of Escape Analysis by increasing the number of opportunities for Scalar Replacement.
