@@ -36,6 +36,7 @@
 #include "opto/cfgnode.hpp"
 #include "opto/compile.hpp"
 #include "opto/escape.hpp"
+#include "opto/locknode.hpp"
 #include "opto/macro.hpp"
 #include "opto/phaseX.hpp"
 #include "opto/movenode.hpp"
