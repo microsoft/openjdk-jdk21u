@@ -22,6 +22,7 @@ active-patches:
   - ms-patches/use-all-windows-processor-groups
   - ms-patches/gettemppath2
   - ms-patches/large-pages
+  - ms-patches/remove_undocumentedAPI
 
 
 ## Upstreamed Patches
