@@ -18,6 +18,7 @@ active-patches:
 # - ms-patches/microsoft-patch-index // this patch branch is required for all releases
   - ms-patches/reduce-allocation-merges
   - ms-patches/8317562-jfr-compiler-queues
+  - ms-patches/8334475-fix-jlong-copy
   - ms-patches/use-all-windows-processor-groups
   - ms-patches/gettemppath2
   - ms-patches/large-pages
