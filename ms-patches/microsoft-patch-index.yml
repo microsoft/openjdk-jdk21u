@@ -31,6 +31,7 @@ active-patches:
   # - ZZ_archive/ms-patches/feature-branch-name-1
   # ...
   # - ZZ_archive/ms-patches/feature-branch-name-N
+  # - ms-patches/use-all-windows-processor-groups
 
 
 # Patches that we are no longer applying to our releases as they have
