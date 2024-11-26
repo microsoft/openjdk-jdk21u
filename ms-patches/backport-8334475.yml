@@ -1,0 +1,10 @@
+title: UnsafeIntrinsicsTest.java#ZGenerationalDebug assert(!assert_on_failure) failed: Has low-order bits set
+- work_item: 2224939
+- jbs_bug: JDK-8334475
+- author: swesonga
+- owner: swesonga
+- contributors:
+- details:
+  - Backport of https://github.com/openjdk/jdk/pull/20390
+- release_note:
+  - Fixes assertion failure in Windows AArch64 code triggered by ZGC test.
