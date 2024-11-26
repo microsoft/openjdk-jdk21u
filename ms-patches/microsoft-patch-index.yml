@@ -19,7 +19,6 @@ active-patches:
   - ms-patches/reduce-allocation-merges
   - ms-patches/8317562-jfr-compiler-queues
   - ms-patches/8334475-fix-jlong-copy
-  - ms-patches/use-all-windows-processor-groups
   - ms-patches/gettemppath2
   - ms-patches/remove_undocumentedAPI
 
@@ -32,6 +31,7 @@ active-patches:
   # - ZZ_archive/ms-patches/feature-branch-name-1
   # ...
   # - ZZ_archive/ms-patches/feature-branch-name-N
+  # - ms-patches/use-all-windows-processor-groups
 
 
 # Patches that we are no longer applying to our releases as they have
