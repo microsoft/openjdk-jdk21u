@@ -19,7 +19,6 @@ active-patches:
   - ms-patches/reduce-allocation-merges
   - ms-patches/8317562-jfr-compiler-queues
   - ms-patches/8334475-fix-jlong-copy
-  - ms-patches/use-all-windows-processor-groups
   - ms-patches/gettemppath2
   - ms-patches/remove_undocumentedAPI
 
