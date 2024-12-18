@@ -1,0 +1,12 @@
+title: [JDK-8345296] AArch64: VM crashes with SIGILL when prctl is disallowed
+- work_item: 2321374
+- author: macarte
+- owner: macarte
+- contributors:
+  - macarte
+- details:
+  - From https://github.com/openjdk/jdk23u/pull/231.  We have caught this in some
+  - prod environments, where prctl is forbidden by the sandboxing mechanism. This fails the JVM.
+  - Does not apply cleanly, the backport depends on FloatRegister changes from JDK-8339063 which
+  - are included in src/hotspot/cpu/aarch64/register_aarch64.hpp.
+- release_note: Address issues when PRCTL is disabled.
