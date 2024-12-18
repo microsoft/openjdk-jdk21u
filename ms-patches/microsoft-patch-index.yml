@@ -20,6 +20,7 @@ active-patches:
   - ms-patches/8317562-jfr-compiler-queues
   - ms-patches/gettemppath2
   - ms-patches/remove_undocumentedAPI
+  - ms-patches/8345296-aarch64-prctl
 
 
 ## Upstreamed Patches
