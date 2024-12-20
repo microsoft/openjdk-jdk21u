@@ -1176,7 +1176,7 @@ void PhaseOutput::Process_OopMap_Node(MachNode *mach, int current_offset) {
             bool is_root = locarray->contains(ov) ||
                            exparray->contains(ov) ||
                            contains_as_owner(monarray, ov) ||
-                           contains_as_scalarized_obj(jvms, sfn, objs, ov);
+                           contains_as_scalarized(jvms, sfn, objs, ov);
             ov->set_root(is_root);
           }
         }
