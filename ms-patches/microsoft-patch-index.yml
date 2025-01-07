@@ -18,9 +18,11 @@ active-patches:
 # - ms-patches/microsoft-patch-index // this patch branch is required for all releases
   - ms-patches/reduce-allocation-merges
   - ms-patches/8317562-jfr-compiler-queues
-  - ms-patches/use-all-windows-processor-groups
   - ms-patches/gettemppath2
   - ms-patches/large-pages
+  - ms-patches/remove_undocumentedAPI
+  - ms-patches/8345296-aarch64-prctl
+
 
 
 ## Upstreamed Patches
@@ -31,6 +33,8 @@ active-patches:
   # - ZZ_archive/ms-patches/feature-branch-name-1
   # ...
   # - ZZ_archive/ms-patches/feature-branch-name-N
+  # - ZZ_archive/ms-patches/8334475-fix-jlong-copy
+  # - ZZ_archive/ms-patches/use-all-windows-processor-groups
 
 
 # Patches that we are no longer applying to our releases as they have
