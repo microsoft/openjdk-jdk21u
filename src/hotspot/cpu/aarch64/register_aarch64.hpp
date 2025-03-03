@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2024, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2014, 2021, Red Hat Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -52,7 +52,7 @@ class Register {
 
    public:
     // accessors
-    constexpr int raw_encoding() const { return this - first(); }
+    constexpr int raw_encoding() const { return checked_cast<int>(this - first()); }
     constexpr int     encoding() const { assert(is_valid(), "invalid register"); return raw_encoding(); }
     constexpr bool    is_valid() const { return 0 <= raw_encoding() && raw_encoding() < number_of_registers; }
 
@@ -165,7 +165,13 @@ class FloatRegister {
     max_slots_per_register  =  4,
     save_slots_per_register =  2,
     slots_per_neon_register =  4,
-    extra_save_slots_per_neon_register = slots_per_neon_register - save_slots_per_register
+    extra_save_slots_per_neon_register = slots_per_neon_register - save_slots_per_register,
+    neon_vl = 16,
+    // VLmax: The maximum sve vector length is determined by the hardware
+    // sve_vl_min <= VLmax <= sve_vl_max.
+    sve_vl_min = 16,
+    // Maximum supported vector length across all CPUs
+    sve_vl_max = 256
   };
 
   class FloatRegisterImpl: public AbstractRegisterImpl {
@@ -175,7 +181,7 @@ class FloatRegister {
 
    public:
     // accessors
-    constexpr int raw_encoding() const { return this - first(); }
+    constexpr int raw_encoding() const { return checked_cast<int>(this - first()); }
     constexpr int     encoding() const { assert(is_valid(), "invalid register"); return raw_encoding(); }
     constexpr bool    is_valid() const { return 0 <= raw_encoding() && raw_encoding() < number_of_registers; }
 
@@ -308,7 +314,7 @@ public:
 
    public:
     // accessors
-    int raw_encoding() const  { return this - first(); }
+    int raw_encoding() const  { return checked_cast<int>(this - first()); }
     int encoding() const      { assert(is_valid(), "invalid register"); return raw_encoding(); }
     bool is_valid() const     { return 0 <= raw_encoding() && raw_encoding() < number_of_registers; }
     bool is_governing() const { return 0 <= raw_encoding() && raw_encoding() < number_of_governing_registers; }

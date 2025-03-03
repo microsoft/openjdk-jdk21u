@@ -37,6 +37,7 @@
 #include "compiler/compilerDefinitions.inline.hpp"
 #include "compiler/oopMap.hpp"
 #include "gc/shared/barrierSetNMethod.hpp"
+#include "gc/shared/classUnloadingContext.hpp"
 #include "gc/shared/collectedHeap.hpp"
 #include "jfr/jfrEvents.hpp"
 #include "jvm_io.h"
@@ -472,10 +473,10 @@ CodeHeap* CodeCache::get_code_heap_containing(void* start) {
   return nullptr;
 }
 
-CodeHeap* CodeCache::get_code_heap(const CodeBlob* cb) {
+CodeHeap* CodeCache::get_code_heap(const void* cb) {
   assert(cb != nullptr, "CodeBlob is null");
   FOR_ALL_HEAPS(heap) {
-    if ((*heap)->contains_blob(cb)) {
+    if ((*heap)->contains(cb)) {
       return *heap;
     }
   }
@@ -604,8 +605,9 @@ void CodeCache::free(CodeBlob* cb) {
     heap->set_adapter_count(heap->adapter_count() - 1);
   }
 
+  cb->~CodeBlob();
   // Get heap for given CodeBlob and deallocate
-  get_code_heap(cb)->deallocate(cb);
+  heap->deallocate(cb);
 
   assert(heap->blob_count() >= 0, "sanity check");
 }
@@ -969,36 +971,8 @@ void CodeCache::purge_exception_caches() {
   _exception_cache_purge_list = nullptr;
 }
 
-// Register an is_unloading nmethod to be flushed after unlinking
-void CodeCache::register_unlinked(nmethod* nm) {
-  assert(nm->unlinked_next() == nullptr, "Only register for unloading once");
-  for (;;) {
-    // Only need acquire when reading the head, when the next
-    // pointer is walked, which it is not here.
-    nmethod* head = Atomic::load(&_unlinked_head);
-    nmethod* next = head != nullptr ? head : nm; // Self looped means end of list
-    nm->set_unlinked_next(next);
-    if (Atomic::cmpxchg(&_unlinked_head, head, nm) == head) {
-      break;
-    }
-  }
-}
-
-// Flush all the nmethods the GC unlinked
-void CodeCache::flush_unlinked_nmethods() {
-  nmethod* nm = _unlinked_head;
-  _unlinked_head = nullptr;
-  size_t freed_memory = 0;
-  while (nm != nullptr) {
-    nmethod* next = nm->unlinked_next();
-    freed_memory += nm->total_size();
-    nm->flush();
-    if (next == nm) {
-      // Self looped means end of list
-      break;
-    }
-    nm = next;
-  }
+// Restart compiler if possible and required..
+void CodeCache::maybe_restart_compiler(size_t freed_memory) {
 
   // Try to start the compiler again if we freed any memory
   if (!CompileBroker::should_compile_new_jobs() && freed_memory != 0) {
@@ -1012,7 +986,6 @@ void CodeCache::flush_unlinked_nmethods() {
 }
 
 uint8_t CodeCache::_unloading_cycle = 1;
-nmethod* volatile CodeCache::_unlinked_head = nullptr;
 
 void CodeCache::increment_unloading_cycle() {
   // 2-bit value (see IsUnloadingState in nmethod.cpp for details)
@@ -1023,7 +996,7 @@ void CodeCache::increment_unloading_cycle() {
   }
 }
 
-CodeCache::UnloadingScope::UnloadingScope(BoolObjectClosure* is_alive)
+CodeCache::UnlinkingScope::UnlinkingScope(BoolObjectClosure* is_alive)
   : _is_unloading_behaviour(is_alive)
 {
   _saved_behaviour = IsUnloadingBehaviour::current();
@@ -1032,10 +1005,9 @@ CodeCache::UnloadingScope::UnloadingScope(BoolObjectClosure* is_alive)
   DependencyContext::cleaning_start();
 }
 
-CodeCache::UnloadingScope::~UnloadingScope() {
+CodeCache::UnlinkingScope::~UnlinkingScope() {
   IsUnloadingBehaviour::set_current(_saved_behaviour);
   DependencyContext::cleaning_end();
-  CodeCache::flush_unlinked_nmethods();
 }
 
 void CodeCache::verify_oops() {

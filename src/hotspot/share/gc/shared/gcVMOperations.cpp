@@ -130,9 +130,9 @@ bool VM_GC_Operation::doit_prologue() {
 
 
 void VM_GC_Operation::doit_epilogue() {
-  // Clean up old interpreter OopMap entries that were replaced
-  // during the GC thread root traversal.
-  OopMapCache::cleanup_old_entries();
+  // GC thread root traversal likely used OopMapCache a lot, which
+  // might have created lots of old entries. Trigger the cleanup now.
+  OopMapCache::try_trigger_cleanup();
   if (Universe::has_reference_pending_list()) {
     Heap_lock->notify_all();
   }
@@ -140,8 +140,8 @@ void VM_GC_Operation::doit_epilogue() {
 }
 
 bool VM_GC_HeapInspection::doit_prologue() {
-  if (_full_gc && UseZGC) {
-    // ZGC cannot perform a synchronous GC cycle from within the VM thread.
+  if (_full_gc && (UseZGC || UseShenandoahGC)) {
+    // ZGC and Shenandoah cannot perform a synchronous GC cycle from within the VM thread.
     // So VM_GC_HeapInspection::collect() is a noop. To respect the _full_gc
     // flag a synchronous GC cycle is performed from the caller thread in the
     // prologue.

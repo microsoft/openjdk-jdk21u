@@ -128,11 +128,13 @@ void CompiledIC::internal_set_ic_destination(address entry_point, bool is_icstub
     tty->cr();
   }
 
+#ifdef ASSERT
   {
     CodeBlob* cb = CodeCache::find_blob(_call->instruction_address());
     assert(cb != nullptr && cb->is_compiled(), "must be compiled");
-    _call->set_destination_mt_safe(entry_point);
   }
+#endif
+  _call->set_destination_mt_safe(entry_point);
 
   if (is_optimized() || is_icstub) {
     // Optimized call sites don't have a cache value and ICStub call
@@ -559,15 +561,14 @@ void CompiledIC::compute_monomorphic_entry(const methodHandle& method,
 
 bool CompiledIC::is_icholder_entry(address entry) {
   CodeBlob* cb = CodeCache::find_blob(entry);
-  if (cb != nullptr && cb->is_adapter_blob()) {
+  if (cb == nullptr) {
+    return false;
+  }
+  if (cb->is_adapter_blob()) {
     return true;
+  } else if (cb->is_vtable_blob()) {
+    return VtableStubs::is_icholder_entry(entry);
   }
-  // itable stubs also use CompiledICHolder
-  if (cb != nullptr && cb->is_vtable_blob()) {
-    VtableStub* s = VtableStubs::entry_point(entry);
-    return (s != nullptr) && s->is_itable_stub();
-  }
-
   return false;
 }
 

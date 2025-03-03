@@ -51,7 +51,9 @@
 #include "runtime/stubCodeGenerator.hpp"
 #include "runtime/stubRoutines.hpp"
 #include "utilities/align.hpp"
+#include "utilities/debug.hpp"
 #include "utilities/globalDefinitions.hpp"
+#include "utilities/intpow.hpp"
 #include "utilities/powerOfTwo.hpp"
 #ifdef COMPILER2
 #include "opto/runtime.hpp"
@@ -84,10 +86,7 @@ class StubGenerator: public StubCodeGenerator {
 #define inc_counter_np(counter) ((void)0)
 #else
   void inc_counter_np_(int& counter) {
-    __ lea(rscratch2, ExternalAddress((address)&counter));
-    __ ldrw(rscratch1, Address(rscratch2));
-    __ addw(rscratch1, rscratch1, 1);
-    __ strw(rscratch1, Address(rscratch2));
+    __ incrementw(ExternalAddress((address)&counter));
   }
 #define inc_counter_np(counter) \
   BLOCK_COMMENT("inc_counter " #counter); \
@@ -139,7 +138,8 @@ class StubGenerator: public StubCodeGenerator {
   //     [ return_from_Java     ] <--- sp
   //     [ argument word n      ]
   //      ...
-  // -27 [ argument word 1      ]
+  // -29 [ argument word 1      ]
+  // -28 [ saved Floating-point Control Register ]
   // -26 [ saved v15            ] <--- sp_after_call
   // -25 [ saved v14            ]
   // -24 [ saved v13            ]
@@ -171,8 +171,9 @@ class StubGenerator: public StubCodeGenerator {
 
   // Call stub stack layout word offsets from fp
   enum call_stub_layout {
-    sp_after_call_off = -26,
+    sp_after_call_off  = -28,
 
+    fpcr_off           = sp_after_call_off,
     d15_off            = -26,
     d13_off            = -24,
     d11_off            = -22,
@@ -202,8 +203,9 @@ class StubGenerator: public StubCodeGenerator {
     StubCodeMark mark(this, "StubRoutines", "call_stub");
     address start = __ pc();
 
-    const Address sp_after_call(rfp, sp_after_call_off * wordSize);
+    const Address sp_after_call (rfp, sp_after_call_off * wordSize);
 
+    const Address fpcr_save     (rfp, fpcr_off           * wordSize);
     const Address call_wrapper  (rfp, call_wrapper_off   * wordSize);
     const Address result        (rfp, result_off         * wordSize);
     const Address result_type   (rfp, result_type_off    * wordSize);
@@ -251,6 +253,14 @@ class StubGenerator: public StubCodeGenerator {
     __ stpd(v11, v10,  d11_save);
     __ stpd(v13, v12,  d13_save);
     __ stpd(v15, v14,  d15_save);
+
+    __ get_fpcr(rscratch1);
+    __ str(rscratch1, fpcr_save);
+    // Set FPCR to the state we need. We do want Round to Nearest. We
+    // don't want non-IEEE rounding modes or floating-point traps.
+    __ bfi(rscratch1, zr, 22, 4); // Clear DN, FZ, and Rmode
+    __ bfi(rscratch1, zr, 8, 5);  // Clear exception-control bits (8-12)
+    __ set_fpcr(rscratch1);
 
     // install Java thread in global register now we have saved
     // whatever value it held
@@ -364,6 +374,10 @@ class StubGenerator: public StubCodeGenerator {
     __ ldp(r24, r23,   r24_save);
     __ ldp(r22, r21,   r22_save);
     __ ldp(r20, r19,   r20_save);
+
+    // restore fpcr
+    __ ldr(rscratch1,  fpcr_save);
+    __ set_fpcr(rscratch1);
 
     __ ldp(c_rarg0, c_rarg1,  call_wrapper);
     __ ldrw(c_rarg2, result_type);
@@ -5298,6 +5312,307 @@ class StubGenerator: public StubCodeGenerator {
     return entry;
   }
 
+  // result = r0 - return value. Contains initial hashcode value on entry.
+  // ary = r1 - array address
+  // cnt = r2 - elements count
+  // Clobbers: v0-v13, rscratch1, rscratch2
+  address generate_large_arrays_hashcode(BasicType eltype) {
+    const Register result = r0, ary = r1, cnt = r2;
+    const FloatRegister vdata0 = v3, vdata1 = v2, vdata2 = v1, vdata3 = v0;
+    const FloatRegister vmul0 = v4, vmul1 = v5, vmul2 = v6, vmul3 = v7;
+    const FloatRegister vpow = v12;  // powers of 31: <31^3, ..., 31^0>
+    const FloatRegister vpowm = v13;
+
+    ARRAYS_HASHCODE_REGISTERS;
+
+    Label SMALL_LOOP, LARGE_LOOP_PREHEADER, LARGE_LOOP, TAIL, TAIL_SHORTCUT, BR_BASE;
+
+    unsigned int vf; // vectorization factor
+    bool multiply_by_halves;
+    Assembler::SIMD_Arrangement load_arrangement;
+    switch (eltype) {
+    case T_BOOLEAN:
+    case T_BYTE:
+      load_arrangement = Assembler::T8B;
+      multiply_by_halves = true;
+      vf = 8;
+      break;
+    case T_CHAR:
+    case T_SHORT:
+      load_arrangement = Assembler::T8H;
+      multiply_by_halves = true;
+      vf = 8;
+      break;
+    case T_INT:
+      load_arrangement = Assembler::T4S;
+      multiply_by_halves = false;
+      vf = 4;
+      break;
+    default:
+      ShouldNotReachHere();
+    }
+
+    // Unroll factor
+    const unsigned uf = 4;
+
+    // Effective vectorization factor
+    const unsigned evf = vf * uf;
+
+    __ align(CodeEntryAlignment);
+
+    const char *mark_name = "";
+    switch (eltype) {
+    case T_BOOLEAN:
+      mark_name = "_large_arrays_hashcode_boolean";
+      break;
+    case T_BYTE:
+      mark_name = "_large_arrays_hashcode_byte";
+      break;
+    case T_CHAR:
+      mark_name = "_large_arrays_hashcode_char";
+      break;
+    case T_SHORT:
+      mark_name = "_large_arrays_hashcode_short";
+      break;
+    case T_INT:
+      mark_name = "_large_arrays_hashcode_int";
+      break;
+    default:
+      mark_name = "_large_arrays_hashcode_incorrect_type";
+      __ should_not_reach_here();
+    };
+
+    StubCodeMark mark(this, "StubRoutines", mark_name);
+
+    address entry = __ pc();
+    __ enter();
+
+    // Put 0-3'th powers of 31 into a single SIMD register together. The register will be used in
+    // the SMALL and LARGE LOOPS' epilogues. The initialization is hoisted here and the register's
+    // value shouldn't change throughout both loops.
+    __ movw(rscratch1, intpow(31U, 3));
+    __ mov(vpow, Assembler::S, 0, rscratch1);
+    __ movw(rscratch1, intpow(31U, 2));
+    __ mov(vpow, Assembler::S, 1, rscratch1);
+    __ movw(rscratch1, intpow(31U, 1));
+    __ mov(vpow, Assembler::S, 2, rscratch1);
+    __ movw(rscratch1, intpow(31U, 0));
+    __ mov(vpow, Assembler::S, 3, rscratch1);
+
+    __ mov(vmul0, Assembler::T16B, 0);
+    __ mov(vmul0, Assembler::S, 3, result);
+
+    __ andr(rscratch2, cnt, (uf - 1) * vf);
+    __ cbz(rscratch2, LARGE_LOOP_PREHEADER);
+
+    __ movw(rscratch1, intpow(31U, multiply_by_halves ? vf / 2 : vf));
+    __ mov(vpowm, Assembler::S, 0, rscratch1);
+
+    // SMALL LOOP
+    __ bind(SMALL_LOOP);
+
+    __ ld1(vdata0, load_arrangement, Address(__ post(ary, vf * type2aelembytes(eltype))));
+    __ mulvs(vmul0, Assembler::T4S, vmul0, vpowm, 0);
+    __ subsw(rscratch2, rscratch2, vf);
+
+    if (load_arrangement == Assembler::T8B) {
+      // Extend 8B to 8H to be able to use vector multiply
+      // instructions
+      assert(load_arrangement == Assembler::T8B, "expected to extend 8B to 8H");
+      if (is_signed_subword_type(eltype)) {
+        __ sxtl(vdata0, Assembler::T8H, vdata0, load_arrangement);
+      } else {
+        __ uxtl(vdata0, Assembler::T8H, vdata0, load_arrangement);
+      }
+    }
+
+    switch (load_arrangement) {
+    case Assembler::T4S:
+      __ addv(vmul0, load_arrangement, vmul0, vdata0);
+      break;
+    case Assembler::T8B:
+    case Assembler::T8H:
+      assert(is_subword_type(eltype), "subword type expected");
+      if (is_signed_subword_type(eltype)) {
+        __ saddwv(vmul0, vmul0, Assembler::T4S, vdata0, Assembler::T4H);
+      } else {
+        __ uaddwv(vmul0, vmul0, Assembler::T4S, vdata0, Assembler::T4H);
+      }
+      break;
+    default:
+      __ should_not_reach_here();
+    }
+
+    // Process the upper half of a vector
+    if (load_arrangement == Assembler::T8B || load_arrangement == Assembler::T8H) {
+      __ mulvs(vmul0, Assembler::T4S, vmul0, vpowm, 0);
+      if (is_signed_subword_type(eltype)) {
+        __ saddwv2(vmul0, vmul0, Assembler::T4S, vdata0, Assembler::T8H);
+      } else {
+        __ uaddwv2(vmul0, vmul0, Assembler::T4S, vdata0, Assembler::T8H);
+      }
+    }
+
+    __ br(Assembler::HI, SMALL_LOOP);
+
+    // SMALL LOOP'S EPILOQUE
+    __ lsr(rscratch2, cnt, exact_log2(evf));
+    __ cbnz(rscratch2, LARGE_LOOP_PREHEADER);
+
+    __ mulv(vmul0, Assembler::T4S, vmul0, vpow);
+    __ addv(vmul0, Assembler::T4S, vmul0);
+    __ umov(result, vmul0, Assembler::S, 0);
+
+    // TAIL
+    __ bind(TAIL);
+
+    // The andr performs cnt % vf. The subtract shifted by 3 offsets past vf - 1 - (cnt % vf) pairs
+    // of load + madd insns i.e. it only executes cnt % vf load + madd pairs.
+    assert(is_power_of_2(vf), "can't use this value to calculate the jump target PC");
+    __ andr(rscratch2, cnt, vf - 1);
+    __ bind(TAIL_SHORTCUT);
+    __ adr(rscratch1, BR_BASE);
+    __ sub(rscratch1, rscratch1, rscratch2, ext::uxtw, 3);
+    __ movw(rscratch2, 0x1f);
+    __ br(rscratch1);
+
+    for (size_t i = 0; i < vf - 1; ++i) {
+      __ load(rscratch1, Address(__ post(ary, type2aelembytes(eltype))),
+                                   eltype);
+      __ maddw(result, result, rscratch2, rscratch1);
+    }
+    __ bind(BR_BASE);
+
+    __ leave();
+    __ ret(lr);
+
+    // LARGE LOOP
+    __ bind(LARGE_LOOP_PREHEADER);
+
+    __ lsr(rscratch2, cnt, exact_log2(evf));
+
+    if (multiply_by_halves) {
+      // 31^4 - multiplier between lower and upper parts of a register
+      __ movw(rscratch1, intpow(31U, vf / 2));
+      __ mov(vpowm, Assembler::S, 1, rscratch1);
+      // 31^28 - remainder of the iteraion multiplier, 28 = 32 - 4
+      __ movw(rscratch1, intpow(31U, evf - vf / 2));
+      __ mov(vpowm, Assembler::S, 0, rscratch1);
+    } else {
+      // 31^16
+      __ movw(rscratch1, intpow(31U, evf));
+      __ mov(vpowm, Assembler::S, 0, rscratch1);
+    }
+
+    __ mov(vmul3, Assembler::T16B, 0);
+    __ mov(vmul2, Assembler::T16B, 0);
+    __ mov(vmul1, Assembler::T16B, 0);
+
+    __ bind(LARGE_LOOP);
+
+    __ mulvs(vmul3, Assembler::T4S, vmul3, vpowm, 0);
+    __ mulvs(vmul2, Assembler::T4S, vmul2, vpowm, 0);
+    __ mulvs(vmul1, Assembler::T4S, vmul1, vpowm, 0);
+    __ mulvs(vmul0, Assembler::T4S, vmul0, vpowm, 0);
+
+    __ ld1(vdata3, vdata2, vdata1, vdata0, load_arrangement,
+           Address(__ post(ary, evf * type2aelembytes(eltype))));
+
+    if (load_arrangement == Assembler::T8B) {
+      // Extend 8B to 8H to be able to use vector multiply
+      // instructions
+      assert(load_arrangement == Assembler::T8B, "expected to extend 8B to 8H");
+      if (is_signed_subword_type(eltype)) {
+        __ sxtl(vdata3, Assembler::T8H, vdata3, load_arrangement);
+        __ sxtl(vdata2, Assembler::T8H, vdata2, load_arrangement);
+        __ sxtl(vdata1, Assembler::T8H, vdata1, load_arrangement);
+        __ sxtl(vdata0, Assembler::T8H, vdata0, load_arrangement);
+      } else {
+        __ uxtl(vdata3, Assembler::T8H, vdata3, load_arrangement);
+        __ uxtl(vdata2, Assembler::T8H, vdata2, load_arrangement);
+        __ uxtl(vdata1, Assembler::T8H, vdata1, load_arrangement);
+        __ uxtl(vdata0, Assembler::T8H, vdata0, load_arrangement);
+      }
+    }
+
+    switch (load_arrangement) {
+    case Assembler::T4S:
+      __ addv(vmul3, load_arrangement, vmul3, vdata3);
+      __ addv(vmul2, load_arrangement, vmul2, vdata2);
+      __ addv(vmul1, load_arrangement, vmul1, vdata1);
+      __ addv(vmul0, load_arrangement, vmul0, vdata0);
+      break;
+    case Assembler::T8B:
+    case Assembler::T8H:
+      assert(is_subword_type(eltype), "subword type expected");
+      if (is_signed_subword_type(eltype)) {
+        __ saddwv(vmul3, vmul3, Assembler::T4S, vdata3, Assembler::T4H);
+        __ saddwv(vmul2, vmul2, Assembler::T4S, vdata2, Assembler::T4H);
+        __ saddwv(vmul1, vmul1, Assembler::T4S, vdata1, Assembler::T4H);
+        __ saddwv(vmul0, vmul0, Assembler::T4S, vdata0, Assembler::T4H);
+      } else {
+        __ uaddwv(vmul3, vmul3, Assembler::T4S, vdata3, Assembler::T4H);
+        __ uaddwv(vmul2, vmul2, Assembler::T4S, vdata2, Assembler::T4H);
+        __ uaddwv(vmul1, vmul1, Assembler::T4S, vdata1, Assembler::T4H);
+        __ uaddwv(vmul0, vmul0, Assembler::T4S, vdata0, Assembler::T4H);
+      }
+      break;
+    default:
+      __ should_not_reach_here();
+    }
+
+    // Process the upper half of a vector
+    if (load_arrangement == Assembler::T8B || load_arrangement == Assembler::T8H) {
+      __ mulvs(vmul3, Assembler::T4S, vmul3, vpowm, 1);
+      __ mulvs(vmul2, Assembler::T4S, vmul2, vpowm, 1);
+      __ mulvs(vmul1, Assembler::T4S, vmul1, vpowm, 1);
+      __ mulvs(vmul0, Assembler::T4S, vmul0, vpowm, 1);
+      if (is_signed_subword_type(eltype)) {
+        __ saddwv2(vmul3, vmul3, Assembler::T4S, vdata3, Assembler::T8H);
+        __ saddwv2(vmul2, vmul2, Assembler::T4S, vdata2, Assembler::T8H);
+        __ saddwv2(vmul1, vmul1, Assembler::T4S, vdata1, Assembler::T8H);
+        __ saddwv2(vmul0, vmul0, Assembler::T4S, vdata0, Assembler::T8H);
+      } else {
+        __ uaddwv2(vmul3, vmul3, Assembler::T4S, vdata3, Assembler::T8H);
+        __ uaddwv2(vmul2, vmul2, Assembler::T4S, vdata2, Assembler::T8H);
+        __ uaddwv2(vmul1, vmul1, Assembler::T4S, vdata1, Assembler::T8H);
+        __ uaddwv2(vmul0, vmul0, Assembler::T4S, vdata0, Assembler::T8H);
+      }
+    }
+
+    __ subsw(rscratch2, rscratch2, 1);
+    __ br(Assembler::HI, LARGE_LOOP);
+
+    __ mulv(vmul3, Assembler::T4S, vmul3, vpow);
+    __ addv(vmul3, Assembler::T4S, vmul3);
+    __ umov(result, vmul3, Assembler::S, 0);
+
+    __ mov(rscratch2, intpow(31U, vf));
+
+    __ mulv(vmul2, Assembler::T4S, vmul2, vpow);
+    __ addv(vmul2, Assembler::T4S, vmul2);
+    __ umov(rscratch1, vmul2, Assembler::S, 0);
+    __ maddw(result, result, rscratch2, rscratch1);
+
+    __ mulv(vmul1, Assembler::T4S, vmul1, vpow);
+    __ addv(vmul1, Assembler::T4S, vmul1);
+    __ umov(rscratch1, vmul1, Assembler::S, 0);
+    __ maddw(result, result, rscratch2, rscratch1);
+
+    __ mulv(vmul0, Assembler::T4S, vmul0, vpow);
+    __ addv(vmul0, Assembler::T4S, vmul0);
+    __ umov(rscratch1, vmul0, Assembler::S, 0);
+    __ maddw(result, result, rscratch2, rscratch1);
+
+    __ andr(rscratch2, cnt, vf - 1);
+    __ cbnz(rscratch2, TAIL_SHORTCUT);
+
+    __ leave();
+    __ ret(lr);
+
+    return entry;
+  }
+
   address generate_dsin_dcos(bool isCos) {
     __ align(CodeEntryAlignment);
     StubCodeMark mark(this, "StubRoutines", isCos ? "libmDcos" : "libmDsin");
@@ -7008,8 +7323,10 @@ class StubGenerator: public StubCodeGenerator {
 
     if (return_barrier_exception) {
       __ ldr(c_rarg1, Address(rfp, wordSize)); // return address
+      __ authenticate_return_address(c_rarg1);
       __ verify_oop(r0);
-      __ mov(r19, r0); // save return value contaning the exception oop in callee-saved R19
+      // save return value containing the exception oop in callee-saved R19
+      __ mov(r19, r0);
 
       __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::exception_handler_for_return_address), rthread, c_rarg1);
 
@@ -7019,7 +7336,7 @@ class StubGenerator: public StubCodeGenerator {
       // see OptoRuntime::generate_exception_blob: r0 -- exception oop, r3 -- exception pc
 
       __ mov(r1, r0); // the exception handler
-      __ mov(r0, r19); // restore return value contaning the exception oop
+      __ mov(r0, r19); // restore return value containing the exception oop
       __ verify_oop(r0);
 
       __ leave();
@@ -8388,6 +8705,13 @@ class StubGenerator: public StubCodeGenerator {
     if (!UseSimpleArrayEquals) {
       StubRoutines::aarch64::_large_array_equals = generate_large_array_equals();
     }
+
+    // arrays_hascode stub for large arrays.
+    StubRoutines::aarch64::_large_arrays_hashcode_boolean = generate_large_arrays_hashcode(T_BOOLEAN);
+    StubRoutines::aarch64::_large_arrays_hashcode_byte = generate_large_arrays_hashcode(T_BYTE);
+    StubRoutines::aarch64::_large_arrays_hashcode_char = generate_large_arrays_hashcode(T_CHAR);
+    StubRoutines::aarch64::_large_arrays_hashcode_int = generate_large_arrays_hashcode(T_INT);
+    StubRoutines::aarch64::_large_arrays_hashcode_short = generate_large_arrays_hashcode(T_SHORT);
 
     // byte_array_inflate stub for large arrays.
     StubRoutines::aarch64::_large_byte_array_inflate = generate_large_byte_array_inflate();

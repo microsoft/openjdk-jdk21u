@@ -246,6 +246,19 @@ abstract class P11Key implements Key, Length {
         return new KeyRep(type, getAlgorithm(), format, getEncodedInternal());
     }
 
+    /**
+     * Restores the state of this object from the stream.
+     *
+     * @param  stream the {@code ObjectInputStream} from which data is read
+     * @throws IOException if an I/O error occurs
+     * @throws ClassNotFoundException if a serialized class cannot be loaded
+     */
+    @java.io.Serial
+    private void readObject(ObjectInputStream stream)
+            throws IOException, ClassNotFoundException {
+        throw new InvalidObjectException("P11Key not directly deserializable");
+    }
+
     public String toString() {
         token.ensureValid();
         String s1 = token.provider.getName() + " " + algorithm + " " + type
@@ -401,8 +414,9 @@ abstract class P11Key implements Key, Length {
                     new CK_ATTRIBUTE(CKA_EXTRACTABLE),
         });
 
-        boolean keySensitive = (attrs[0].getBoolean() ||
-                attrs[1].getBoolean() || !attrs[2].getBoolean());
+        boolean keySensitive =
+                (attrs[0].getBoolean() && P11Util.isNSS(session.token)) ||
+                attrs[1].getBoolean() || !attrs[2].getBoolean();
 
         return switch (algorithm) {
             case "RSA" -> P11RSAPrivateKeyInternal.of(session, keyID, algorithm,

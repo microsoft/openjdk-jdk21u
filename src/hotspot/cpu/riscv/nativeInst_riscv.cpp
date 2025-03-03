@@ -109,18 +109,6 @@ bool NativeInstruction::is_li32_at(address instr) {
          check_li32_data_dependency(instr);
 }
 
-bool NativeInstruction::is_li64_at(address instr) {
-  return is_lui_at(instr) && // lui
-         is_addi_at(instr + instruction_size) && // addi
-         is_slli_shift_at(instr + instruction_size * 2, 12) &&  // Slli Rd, Rs, 12
-         is_addi_at(instr + instruction_size * 3) && // addi
-         is_slli_shift_at(instr + instruction_size * 4, 12) &&  // Slli Rd, Rs, 12
-         is_addi_at(instr + instruction_size * 5) && // addi
-         is_slli_shift_at(instr + instruction_size * 6, 8) &&   // Slli Rd, Rs, 8
-         is_addi_at(instr + instruction_size * 7) && // addi
-         check_li64_data_dependency(instr);
-}
-
 void NativeCall::verify() {
   assert(NativeCall::is_call_at((address)this), "unexpected code at call site");
 }
@@ -150,10 +138,10 @@ address NativeCall::destination() const {
 // Used in the runtime linkage of calls; see class CompiledIC.
 //
 // Add parameter assert_lock to switch off assertion
-// during code generation, where no patching lock is needed.
+// during code generation, where no lock is needed.
 void NativeCall::set_destination_mt_safe(address dest, bool assert_lock) {
   assert(!assert_lock ||
-         (Patching_lock->is_locked() || SafepointSynchronize::is_at_safepoint()) ||
+         (CodeCache_lock->is_locked() || SafepointSynchronize::is_at_safepoint()) ||
          CompiledICLocker::is_safe(addr_at(0)),
          "concurrent code patching");
 

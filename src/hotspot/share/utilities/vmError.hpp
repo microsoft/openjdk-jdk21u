@@ -170,6 +170,11 @@ public:
                              void* context, const char* detail_fmt, ...);
 
   ATTRIBUTE_NORETURN
+  ATTRIBUTE_PRINTF(6, 7)
+  static void report_and_die(Thread* thread, void* context, const char* filename, int lineno, const char* message,
+                             const char* detail_fmt, ...);
+
+  ATTRIBUTE_NORETURN
   ATTRIBUTE_PRINTF(3, 0)
   static void report_and_die(int id, const char* message, const char* detail_fmt, va_list detail_args,
                              Thread* thread, address pc, void* siginfo, void* context,
@@ -207,7 +212,7 @@ public:
   DEBUG_ONLY(static void controlled_crash(int how);)
 
   // Non-null address guaranteed to generate a SEGV mapping error on read, for test purposes.
-  static constexpr intptr_t segfault_address = AIX_ONLY(-1) NOT_AIX(1 * K);
+  static const intptr_t segfault_address;
 
   // Max value for the ErrorLogPrintCodeLimit flag.
   static const int max_error_log_print_code = 10;

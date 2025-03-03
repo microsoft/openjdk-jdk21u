@@ -36,6 +36,7 @@
 #include "gc/serial/markSweep.hpp"
 #include "gc/shared/adaptiveSizePolicy.hpp"
 #include "gc/shared/cardTableBarrierSet.hpp"
+#include "gc/shared/classUnloadingContext.hpp"
 #include "gc/shared/collectedHeap.inline.hpp"
 #include "gc/shared/collectorCounters.hpp"
 #include "gc/shared/continuationGCSupport.inline.hpp"
@@ -456,7 +457,7 @@ void GenCollectedHeap::do_collection(bool           full,
   assert(my_thread->is_VM_thread(), "only VM thread");
   assert(Heap_lock->is_locked(),
          "the requesting thread should have the Heap_lock");
-  guarantee(!is_gc_active(), "collection is not reentrant");
+  guarantee(!is_stw_gc_active(), "collection is not reentrant");
 
   if (GCLocker::check_active_before_gc()) {
     return; // GC is disabled (e.g. JNI GetXXXCritical operation)
@@ -467,7 +468,7 @@ void GenCollectedHeap::do_collection(bool           full,
 
   ClearedAllSoftRefs casr(do_clear_all_soft_refs, soft_ref_policy());
 
-  AutoModifyRestore<bool> temporarily(_is_gc_active, true);
+  AutoModifyRestore<bool> temporarily(_is_stw_gc_active, true);
 
   bool complete = full && (max_generation == OldGen);
   bool old_collects_young = complete && !ScavengeBeforeFullGC;
@@ -555,6 +556,10 @@ void GenCollectedHeap::do_collection(bool           full,
 
     CodeCache::on_gc_marking_cycle_start();
 
+    ClassUnloadingContext ctx(1 /* num_nmethod_unlink_workers */,
+                              false /* unregister_nmethods_during_purge */,
+                              false /* lock_codeblob_free_separately */);
+
     collect_generation(_old_gen,
                        full,
                        size,
@@ -570,7 +575,7 @@ void GenCollectedHeap::do_collection(bool           full,
     _young_gen->compute_new_size();
 
     // Delete metaspaces for unloaded class loaders and clean up loader_data graph
-    ClassLoaderDataGraph::purge(/*at_safepoint*/true);
+    ClassLoaderDataGraph::purge(true /* at_safepoint */);
     DEBUG_ONLY(MetaspaceUtils::verify();)
 
     // Need to clear claim bits for the next mark.
@@ -611,7 +616,11 @@ void GenCollectedHeap::verify_nmethod(nmethod* nm) {
 }
 
 void GenCollectedHeap::prune_scavengable_nmethods() {
-  ScavengableNMethods::prune_nmethods();
+  ScavengableNMethods::prune_nmethods_not_into_young();
+}
+
+void GenCollectedHeap::prune_unlinked_nmethods() {
+  ScavengableNMethods::prune_unlinked_nmethods();
 }
 
 HeapWord* GenCollectedHeap::satisfy_failed_allocation(size_t size, bool is_tlab) {

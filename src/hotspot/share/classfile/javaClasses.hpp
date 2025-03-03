@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -208,6 +208,7 @@ class java_lang_String : AllStatic {
   macro(java_lang_Class, protection_domain,      object_signature,  false) \
   macro(java_lang_Class, signers,                object_signature,  false) \
   macro(java_lang_Class, source_file,            object_signature,  false) \
+  macro(java_lang_Class, init_lock,              object_signature,  false)
 
 class java_lang_Class : AllStatic {
   friend class VMStructs;
@@ -224,6 +225,7 @@ class java_lang_Class : AllStatic {
   static int _static_oop_field_count_offset;
 
   static int _protection_domain_offset;
+  static int _init_lock_offset;
   static int _signers_offset;
   static int _class_loader_offset;
   static int _module_offset;
@@ -238,6 +240,7 @@ class java_lang_Class : AllStatic {
   static GrowableArray<Klass*>* _fixup_mirror_list;
   static GrowableArray<Klass*>* _fixup_module_field_list;
 
+  static void set_init_lock(oop java_class, oop init_lock);
   static void set_protection_domain(oop java_class, oop protection_domain);
   static void set_class_loader(oop java_class, oop class_loader);
   static void set_component_mirror(oop java_class, oop comp_mirror);
@@ -290,6 +293,10 @@ class java_lang_Class : AllStatic {
 
   // Support for embedded per-class oops
   static oop  protection_domain(oop java_class);
+  static oop  init_lock(oop java_class);
+  static void clear_init_lock(oop java_class) {
+    set_init_lock(java_class, nullptr);
+  }
   static oop  component_mirror(oop java_class);
   static objArrayOop  signers(oop java_class);
   static void set_signers(oop java_class, objArrayOop signers);
@@ -519,20 +526,22 @@ class java_lang_VirtualThread : AllStatic {
   JFR_ONLY(static int _jfr_epoch_offset;)
  public:
   enum {
-    NEW          = 0,
-    STARTED      = 1,
-    RUNNABLE     = 2,
-    RUNNING      = 3,
-    PARKING      = 4,
-    PARKED       = 5,
-    PINNED       = 6,
-    YIELDING     = 7,
-    TERMINATED   = 99,
+    NEW           = 0,
+    STARTED       = 1,
+    RUNNING       = 2,
+    PARKING       = 3,
+    PARKED        = 4,
+    PINNED        = 5,
+    TIMED_PARKING = 6,
+    TIMED_PARKED  = 7,
+    TIMED_PINNED  = 8,
+    UNPARKED      = 9,
+    YIELDING      = 10,
+    YIELDED       = 11,
+    TERMINATED    = 99,
 
-    // can be suspended from scheduling when unmounted
-    SUSPENDED    = 1 << 8,
-    RUNNABLE_SUSPENDED = (RUNNABLE | SUSPENDED),
-    PARKED_SUSPENDED   = (PARKED | SUSPENDED)
+    // additional state bits
+    SUSPENDED    = 1 << 8,   // suspended when unmounted
   };
 
   static void compute_offsets();
@@ -591,12 +600,14 @@ class java_lang_Throwable: AllStatic {
   static void set_backtrace(oop throwable, oop value);
   static int depth(oop throwable);
   static void set_depth(oop throwable, int value);
-  static int get_detailMessage_offset() { CHECK_INIT(_detailMessage_offset); }
   // Message
+  static int get_detailMessage_offset() { CHECK_INIT(_detailMessage_offset); }
   static oop message(oop throwable);
-  static oop cause(oop throwable);
+  static const char* message_as_utf8(oop throwable);
   static void set_message(oop throwable, oop value);
-  static Symbol* detail_message(oop throwable);
+
+  static oop cause(oop throwable);
+
   static void print_stack_element(outputStream *st, Method* method, int bci);
 
   static void compute_offsets();

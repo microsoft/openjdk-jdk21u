@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -1554,6 +1554,7 @@ Node* GraphKit::make_load(Node* ctl, Node* adr, const Type* t, BasicType bt,
                           bool mismatched,
                           bool unsafe,
                           uint8_t barrier_data) {
+  assert(adr_idx == C->get_alias_index(_gvn.type(adr)->isa_ptr()), "slice of address and input slice don't match");
   assert(adr_idx != Compile::AliasIdxTop, "use other make_load factory" );
   const TypePtr* adr_type = nullptr; // debug-mode-only argument
   debug_only(adr_type = C->get_adr_type(adr_idx));
@@ -1576,6 +1577,7 @@ Node* GraphKit::store_to_memory(Node* ctl, Node* adr, Node *val, BasicType bt,
                                 bool unsafe,
                                 int barrier_data) {
   assert(adr_idx != Compile::AliasIdxTop, "use other store_to_memory factory" );
+  assert(adr_idx == C->get_alias_index(_gvn.type(adr)->isa_ptr()), "slice of address and input slice don't match");
   const TypePtr* adr_type = nullptr;
   debug_only(adr_type = C->get_adr_type(adr_idx));
   Node *mem = memory(adr_idx);
@@ -2702,7 +2704,18 @@ Node* Phase::gen_subtype_check(Node* subklass, Node* superklass, Node** ctrl, No
     //    Foo[] fa = blah(); Foo x = fa[0]; fa[1] = x;
     // Here, the type of 'fa' is often exact, so the store check
     // of fa[1]=x will fold up, without testing the nullness of x.
-    switch (C->static_subtype_check(superk, subk)) {
+    //
+    // Do not skip the static sub type check with StressReflectiveCode during
+    // parsing (i.e. with ExpandSubTypeCheckAtParseTime) because the
+    // associated CheckCastNodePP could already be folded when the type
+    // system can prove it's an impossible type. Therefore, we should also
+    // do the static sub type check here to ensure control is folded as well.
+    // Otherwise, the graph is left in a broken state.
+    // At macro expansion, we would have already folded the SubTypeCheckNode
+    // being expanded here because we always perform the static sub type
+    // check in SubTypeCheckNode::sub() regardless of whether
+    // StressReflectiveCode is set or not.
+    switch (C->static_subtype_check(superk, subk, !ExpandSubTypeCheckAtParseTime)) {
     case Compile::SSC_always_false:
       {
         Node* always_fail = *ctrl;
@@ -3421,7 +3434,10 @@ FastLockNode* GraphKit::shared_lock(Node* obj) {
   assert(dead_locals_are_killed(), "should kill locals before sync. point");
 
   // Box the stack location
-  Node* box = _gvn.transform(new BoxLockNode(next_monitor()));
+  Node* box = new BoxLockNode(next_monitor());
+  // Check for bailout after new BoxLockNode
+  if (failing()) { return nullptr; }
+  box = _gvn.transform(box);
   Node* mem = reset_memory();
 
   FastLockNode * flock = _gvn.transform(new FastLockNode(0, obj, box) )->as_FastLock();
@@ -4206,4 +4222,15 @@ Node* GraphKit::make_constant_from_field(ciField* field, Node* obj) {
     return makecon(con_type);
   }
   return nullptr;
+}
+
+Node* GraphKit::maybe_narrow_object_type(Node* obj, ciKlass* type) {
+  const TypeOopPtr* obj_type = obj->bottom_type()->isa_oopptr();
+  const TypeOopPtr* sig_type = TypeOopPtr::make_from_klass(type);
+  if (obj_type != nullptr && sig_type->is_loaded() && !obj_type->higher_equal(sig_type)) {
+    const Type* narrow_obj_type = obj_type->filter_speculative(sig_type); // keep speculative part
+    Node* casted_obj = gvn().transform(new CheckCastPPNode(control(), obj, narrow_obj_type));
+    return casted_obj;
+  }
+  return obj;
 }

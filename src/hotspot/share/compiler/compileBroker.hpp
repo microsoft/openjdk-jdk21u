@@ -87,7 +87,7 @@ class CompileQueue : public CHeapObj<mtCompiler> {
 
   CompileTask* _first_stale;
 
-  int _size;
+  volatile int _size;
   int _peak_size;
   uint _total_added;
   uint _total_removed;
@@ -260,6 +260,8 @@ class CompileBroker: AllStatic {
 #if INCLUDE_JVMCI
   static bool wait_for_jvmci_completion(JVMCICompiler* comp, CompileTask* task, JavaThread* thread);
 #endif
+
+  static void free_buffer_blob_if_allocated(CompilerThread* thread);
 
   static void invoke_compiler_on_method(CompileTask* task);
   static void handle_compile_error(CompilerThread* thread, CompileTask* task, ciEnv* ci_env,

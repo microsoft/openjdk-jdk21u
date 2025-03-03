@@ -47,7 +47,7 @@ class InterruptHangTarg {
     public static void main(String[] args){
         int answer = 0;
         System.out.println("Howdy!");
-        Thread interruptorThread = TestScaffold.newThread(new Interruptor(Thread.currentThread()));
+        Thread interruptorThread = DebuggeeWrapper.newThread(new Interruptor(Thread.currentThread()));
 
         synchronized(sync) {
             interruptorThread.start();
@@ -62,8 +62,10 @@ class InterruptHangTarg {
         for (int ii = 0; ii < 200; ii++) {
             answer++;
             try {
-                // Give other thread a chance to run
-                Thread.sleep(100);
+                // Give other thread a chance to interrupt. Normally only a very short
+                // sleep is needed, but we need to account for unexpected delays in
+                // the interrupt due to machine and network hiccups.
+                Thread.sleep(10*1000);
             } catch (InterruptedException ee) {
                 System.out.println("Debuggee interruptee: interrupted at iteration: "
                                    + ii);

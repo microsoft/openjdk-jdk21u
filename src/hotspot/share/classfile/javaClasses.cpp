@@ -787,6 +787,7 @@ int java_lang_Class::_class_loader_offset;
 int java_lang_Class::_module_offset;
 int java_lang_Class::_protection_domain_offset;
 int java_lang_Class::_component_mirror_offset;
+int java_lang_Class::_init_lock_offset;
 int java_lang_Class::_signers_offset;
 int java_lang_Class::_name_offset;
 int java_lang_Class::_source_file_offset;
@@ -912,6 +913,12 @@ void java_lang_Class::initialize_mirror_fields(Klass* k,
                                                Handle protection_domain,
                                                Handle classData,
                                                TRAPS) {
+  // Allocate a simple java object for a lock.
+  // This needs to be a java object because during class initialization
+  // it can be held across a java call.
+  typeArrayOop r = oopFactory::new_typeArray(T_INT, 0, CHECK);
+  set_init_lock(mirror(), r);
+
   // Set protection domain also
   set_protection_domain(mirror(), protection_domain());
 
@@ -1133,6 +1140,10 @@ bool java_lang_Class::restore_archived_mirror(Klass *k,
   if (!k->is_array_klass()) {
     // - local static final fields with initial values were initialized at dump time
 
+    // create the init_lock
+    typeArrayOop r = oopFactory::new_typeArray(T_INT, 0, CHECK_(false));
+    set_init_lock(mirror(), r);
+
     if (protection_domain.not_null()) {
       set_protection_domain(mirror(), protection_domain());
     }
@@ -1195,6 +1206,15 @@ void java_lang_Class::set_component_mirror(oop java_class, oop comp_mirror) {
 oop java_lang_Class::component_mirror(oop java_class) {
   assert(_component_mirror_offset != 0, "must be set");
   return java_class->obj_field(_component_mirror_offset);
+}
+
+oop java_lang_Class::init_lock(oop java_class) {
+  assert(_init_lock_offset != 0, "must be set");
+  return java_class->obj_field(_init_lock_offset);
+}
+void java_lang_Class::set_init_lock(oop java_class, oop init_lock) {
+  assert(_init_lock_offset != 0, "must be set");
+  java_class->obj_field_put(_init_lock_offset, init_lock);
 }
 
 objArrayOop java_lang_Class::signers(oop java_class) {
@@ -1415,7 +1435,6 @@ void java_lang_Class::compute_offsets() {
 
   InstanceKlass* k = vmClasses::Class_klass();
   CLASS_FIELDS_DO(FIELD_COMPUTE_OFFSET);
-
   CLASS_INJECTED_FIELDS(INJECTED_FIELD_COMPUTE_OFFSET);
 }
 
@@ -1986,24 +2005,28 @@ int java_lang_VirtualThread::state(oop vthread) {
 
 JavaThreadStatus java_lang_VirtualThread::map_state_to_thread_status(int state) {
   JavaThreadStatus status = JavaThreadStatus::NEW;
-  switch (state) {
-    case NEW :
+  switch (state & ~SUSPENDED) {
+    case NEW:
       status = JavaThreadStatus::NEW;
       break;
-    case STARTED :
-    case RUNNABLE :
-    case RUNNABLE_SUSPENDED :
-    case RUNNING :
-    case PARKING :
-    case YIELDING :
+    case STARTED:
+    case RUNNING:
+    case PARKING:
+    case TIMED_PARKING:
+    case UNPARKED:
+    case YIELDING:
+    case YIELDED:
       status = JavaThreadStatus::RUNNABLE;
       break;
-    case PARKED :
-    case PARKED_SUSPENDED :
-    case PINNED :
+    case PARKED:
+    case PINNED:
       status = JavaThreadStatus::PARKED;
       break;
-    case TERMINATED :
+    case TIMED_PARKED:
+    case TIMED_PINNED:
+      status = JavaThreadStatus::PARKED_TIMED;
+      break;
+    case TERMINATED:
       status = JavaThreadStatus::TERMINATED;
       break;
     default:
@@ -2073,18 +2096,17 @@ oop java_lang_Throwable::message(oop throwable) {
   return throwable->obj_field(_detailMessage_offset);
 }
 
-oop java_lang_Throwable::cause(oop throwable) {
-  return throwable->obj_field(_cause_offset);
+const char* java_lang_Throwable::message_as_utf8(oop throwable) {
+  oop msg = java_lang_Throwable::message(throwable);
+  const char* msg_utf8 = nullptr;
+  if (msg != nullptr) {
+    msg_utf8 = java_lang_String::as_utf8_string(msg);
+  }
+  return msg_utf8;
 }
 
-// Return Symbol for detailed_message or null
-Symbol* java_lang_Throwable::detail_message(oop throwable) {
-  PreserveExceptionMark pm(Thread::current());
-  oop detailed_message = java_lang_Throwable::message(throwable);
-  if (detailed_message != nullptr) {
-    return java_lang_String::as_symbol(detailed_message);
-  }
-  return nullptr;
+oop java_lang_Throwable::cause(oop throwable) {
+  return throwable->obj_field(_cause_offset);
 }
 
 void java_lang_Throwable::set_message(oop throwable, oop value) {

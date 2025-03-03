@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -84,10 +84,9 @@ ParallelScavengeTracer        PSScavenge::_gc_tracer;
 CollectorCounters*            PSScavenge::_counters = nullptr;
 
 static void scavenge_roots_work(ParallelRootType::Value root_type, uint worker_id) {
-  assert(ParallelScavengeHeap::heap()->is_gc_active(), "called outside gc");
+  assert(ParallelScavengeHeap::heap()->is_stw_gc_active(), "called outside gc");
 
   PSPromotionManager* pm = PSPromotionManager::gc_thread_promotion_manager(worker_id);
-  PSScavengeRootsClosure roots_closure(pm);
   PSPromoteRootsClosure  roots_to_old_closure(pm);
 
   switch (root_type) {
@@ -116,7 +115,7 @@ static void scavenge_roots_work(ParallelRootType::Value root_type, uint worker_i
 }
 
 static void steal_work(TaskTerminator& terminator, uint worker_id) {
-  assert(ParallelScavengeHeap::heap()->is_gc_active(), "called outside gc");
+  assert(ParallelScavengeHeap::heap()->is_stw_gc_active(), "called outside gc");
 
   PSPromotionManager* pm =
     PSPromotionManager::gc_thread_promotion_manager(worker_id);
@@ -233,15 +232,14 @@ public:
 bool PSScavenge::invoke() {
   assert(SafepointSynchronize::is_at_safepoint(), "should be at safepoint");
   assert(Thread::current() == (Thread*)VMThread::vm_thread(), "should be in vm thread");
-  assert(!ParallelScavengeHeap::heap()->is_gc_active(), "not reentrant");
+  assert(!ParallelScavengeHeap::heap()->is_stw_gc_active(), "not reentrant");
 
   ParallelScavengeHeap* const heap = ParallelScavengeHeap::heap();
   PSAdaptiveSizePolicy* policy = heap->size_policy();
-  IsGCActiveMark mark;
+  IsSTWGCActiveMark mark;
 
   const bool scavenge_done = PSScavenge::invoke_no_policy();
-  const bool need_full_gc = !scavenge_done ||
-    policy->should_full_GC(heap->old_gen()->free_in_bytes());
+  const bool need_full_gc = !scavenge_done;
   bool full_gc_done = false;
 
   if (UsePerfData) {
@@ -266,7 +264,7 @@ class PSThreadRootsTaskClosure : public ThreadClosure {
 public:
   PSThreadRootsTaskClosure(uint worker_id) : _worker_id(worker_id) { }
   virtual void do_thread(Thread* thread) {
-    assert(ParallelScavengeHeap::heap()->is_gc_active(), "called outside gc");
+    assert(ParallelScavengeHeap::heap()->is_stw_gc_active(), "called outside gc");
 
     PSPromotionManager* pm = PSPromotionManager::gc_thread_promotion_manager(_worker_id);
     PSScavengeRootsClosure roots_closure(pm);
@@ -301,6 +299,11 @@ public:
       _is_old_gen_empty(old_gen->object_space()->is_empty()),
       _terminator(active_workers, PSPromotionManager::vm_thread_promotion_manager()->stack_array_depth()) {
     assert(_old_gen != nullptr, "Sanity");
+
+    if (!_is_old_gen_empty) {
+      PSCardTable* card_table = ParallelScavengeHeap::heap()->card_table();
+      card_table->pre_scavenge(_old_gen->object_space()->bottom(), active_workers);
+    }
   }
 
   virtual void work(uint worker_id) {
@@ -314,8 +317,9 @@ public:
         PSPromotionManager* pm = PSPromotionManager::gc_thread_promotion_manager(worker_id);
         PSCardTable* card_table = ParallelScavengeHeap::heap()->card_table();
 
+        // The top of the old gen changes during scavenge when objects are promoted.
         card_table->scavenge_contents_parallel(_old_gen->start_array(),
-                                               _old_gen->object_space(),
+                                               _old_gen->object_space()->bottom(),
                                                _gen_top,
                                                pm,
                                                worker_id,
@@ -702,16 +706,16 @@ bool PSScavenge::should_attempt_scavenge() {
   // Test to see if the scavenge will likely fail.
   PSAdaptiveSizePolicy* policy = heap->size_policy();
 
-  // A similar test is done in the policy's should_full_GC().  If this is
-  // changed, decide if that test should also be changed.
   size_t avg_promoted = (size_t) policy->padded_average_promoted_in_bytes();
   size_t promotion_estimate = MIN2(avg_promoted, young_gen->used_in_bytes());
-  bool result = promotion_estimate < old_gen->free_in_bytes();
+  // Total free size after possible old gen expansion
+  size_t free_in_old_gen = old_gen->max_gen_size() - old_gen->used_in_bytes();
+  bool result = promotion_estimate < free_in_old_gen;
 
   log_trace(ergo)("%s scavenge: average_promoted " SIZE_FORMAT " padded_average_promoted " SIZE_FORMAT " free in old gen " SIZE_FORMAT,
                 result ? "Do" : "Skip", (size_t) policy->average_promoted_in_bytes(),
                 (size_t) policy->padded_average_promoted_in_bytes(),
-                old_gen->free_in_bytes());
+                free_in_old_gen);
   if (young_gen->used_in_bytes() < (size_t) policy->padded_average_promoted_in_bytes()) {
     log_trace(ergo)(" padded_promoted_average is greater than maximum promotion = " SIZE_FORMAT, young_gen->used_in_bytes());
   }

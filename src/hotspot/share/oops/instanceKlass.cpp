@@ -83,6 +83,7 @@
 #include "runtime/mutexLocker.hpp"
 #include "runtime/orderAccess.hpp"
 #include "runtime/reflectionUtils.hpp"
+#include "runtime/synchronizer.hpp"
 #include "runtime/threads.hpp"
 #include "services/classLoadingService.hpp"
 #include "services/finalizerService.hpp"
@@ -494,10 +495,6 @@ Array<int>* InstanceKlass::create_new_default_vtable_indices(int len, TRAPS) {
   return vtable_indices;
 }
 
-static Monitor* create_init_monitor(const char* name) {
-  return new Monitor(Mutex::safepoint, name);
-}
-
 InstanceKlass::InstanceKlass(const ClassFileParser& parser, KlassKind kind, ReferenceType reference_type) :
   Klass(kind),
   _nest_members(nullptr),
@@ -510,7 +507,6 @@ InstanceKlass::InstanceKlass(const ClassFileParser& parser, KlassKind kind, Refe
   _nest_host_index(0),
   _init_state(allocated),
   _reference_type(reference_type),
-  _init_monitor(create_init_monitor("InstanceKlassInitMonitor_lock")),
   _init_thread(nullptr)
 {
   set_vtable_length(parser.vtable_size());
@@ -738,6 +734,28 @@ objArrayOop InstanceKlass::signers() const {
   return java_lang_Class::signers(java_mirror());
 }
 
+oop InstanceKlass::init_lock() const {
+  // return the init lock from the mirror
+  oop lock = java_lang_Class::init_lock(java_mirror());
+  // Prevent reordering with any access of initialization state
+  OrderAccess::loadload();
+  assert(lock != nullptr || !is_not_initialized(), // initialized or in_error state
+         "only fully initialized state can have a null lock");
+  return lock;
+}
+
+// Set the initialization lock to null so the object can be GC'ed.  Any racing
+// threads to get this lock will see a null lock and will not lock.
+// That's okay because they all check for initialized state after getting
+// the lock and return.
+void InstanceKlass::fence_and_clear_init_lock() {
+  // make sure previous stores are all done, notably the init_state.
+  OrderAccess::storestore();
+  java_lang_Class::clear_init_lock(java_mirror());
+  assert(!is_not_initialized(), "class must be initialized now");
+}
+
+
 // See "The Virtual Machine Specification" section 2.16.5 for a detailed explanation of the class initialization
 // process. The step comments refers to the procedure described in that section.
 // Note: implementation moved to static method to expose the this pointer.
@@ -762,26 +780,6 @@ void InstanceKlass::link_class(TRAPS) {
   assert(is_loaded(), "must be loaded");
   if (!is_linked()) {
     link_class_impl(CHECK);
-  }
-}
-
-void InstanceKlass::check_link_state_and_wait(JavaThread* current) {
-  MonitorLocker ml(current, _init_monitor);
-
-  // Another thread is linking this class, wait.
-  while (is_being_linked() && !is_init_thread(current)) {
-    ml.wait();
-  }
-
-  // This thread is recursively linking this class, continue
-  if (is_being_linked() && is_init_thread(current)) {
-    return;
-  }
-
-  // If this class wasn't linked already, set state to being_linked
-  if (!is_linked()) {
-    set_init_state(being_linked);
-    set_init_thread(current);
   }
 }
 
@@ -863,8 +861,9 @@ bool InstanceKlass::link_class_impl(TRAPS) {
 
   // verification & rewriting
   {
-    LockLinkState init_lock(this, jt);
-
+    HandleMark hm(THREAD);
+    Handle h_init_lock(THREAD, init_lock());
+    ObjectLocker ol(h_init_lock, jt);
     // rewritten will have been set if loader constraint error found
     // on an earlier link attempt
     // don't verify or rewrite if already rewritten
@@ -922,7 +921,21 @@ bool InstanceKlass::link_class_impl(TRAPS) {
       // In case itable verification is ever added.
       // itable().verify(tty, true);
 #endif
-      set_initialization_state_and_notify(linked, THREAD);
+      if (UseVtableBasedCHA && Universe::is_fully_initialized()) {
+        DeoptimizationScope deopt_scope;
+        {
+          // Now mark all code that assumes the class is not linked.
+          // Set state under the Compile_lock also.
+          MutexLocker ml(THREAD, Compile_lock);
+
+          set_init_state(linked);
+          CodeCache::mark_dependents_on(&deopt_scope, this);
+        }
+        // Perform the deopt handshake outside Compile_lock.
+        deopt_scope.deoptimize_marked();
+      } else {
+        set_init_state(linked);
+      }
       if (JvmtiExport::should_post_class_prepare()) {
         JvmtiExport::post_class_prepare(THREAD, this);
       }
@@ -1043,59 +1056,86 @@ void InstanceKlass::initialize_impl(TRAPS) {
   DTRACE_CLASSINIT_PROBE(required, -1);
 
   bool wait = false;
-  bool throw_error = false;
 
   JavaThread* jt = THREAD;
+
+  bool debug_logging_enabled = log_is_enabled(Debug, class, init);
 
   // refer to the JVM book page 47 for description of steps
   // Step 1
   {
-    MonitorLocker ml(THREAD, _init_monitor);
+    Handle h_init_lock(THREAD, init_lock());
+    ObjectLocker ol(h_init_lock, jt);
 
     // Step 2
-    while (is_being_initialized() && !is_init_thread(jt)) {
+    // If we were to use wait() instead of waitInterruptibly() then
+    // we might end up throwing IE from link/symbol resolution sites
+    // that aren't expected to throw.  This would wreak havoc.  See 6320309.
+    while (is_being_initialized() && !is_reentrant_initialization(jt)) {
+      if (debug_logging_enabled) {
+        ResourceMark rm(jt);
+        log_debug(class, init)("Thread \"%s\" waiting for initialization of %s by thread \"%s\"",
+                               jt->name(), external_name(), init_thread_name());
+      }
+
       wait = true;
       jt->set_class_to_be_initialized(this);
-      ml.wait();
+      ol.wait_uninterruptibly(jt);
       jt->set_class_to_be_initialized(nullptr);
     }
 
     // Step 3
-    if (is_being_initialized() && is_init_thread(jt)) {
+    if (is_being_initialized() && is_reentrant_initialization(jt)) {
+      if (debug_logging_enabled) {
+        ResourceMark rm(jt);
+        log_debug(class, init)("Thread \"%s\" recursively initializing %s",
+                               jt->name(), external_name());
+      }
       DTRACE_CLASSINIT_PROBE_WAIT(recursive, -1, wait);
       return;
     }
 
     // Step 4
     if (is_initialized()) {
+      if (debug_logging_enabled) {
+        ResourceMark rm(jt);
+        log_debug(class, init)("Thread \"%s\" found %s already initialized",
+                               jt->name(), external_name());
+      }
       DTRACE_CLASSINIT_PROBE_WAIT(concurrent, -1, wait);
       return;
     }
 
     // Step 5
     if (is_in_error_state()) {
-      throw_error = true;
+      if (debug_logging_enabled) {
+        ResourceMark rm(jt);
+        log_debug(class, init)("Thread \"%s\" found %s is in error state",
+                               jt->name(), external_name());
+      }
+
+      DTRACE_CLASSINIT_PROBE_WAIT(erroneous, -1, wait);
+      ResourceMark rm(THREAD);
+      Handle cause(THREAD, get_initialization_error(THREAD));
+
+      stringStream ss;
+      ss.print("Could not initialize class %s", external_name());
+      if (cause.is_null()) {
+        THROW_MSG(vmSymbols::java_lang_NoClassDefFoundError(), ss.as_string());
+      } else {
+        THROW_MSG_CAUSE(vmSymbols::java_lang_NoClassDefFoundError(),
+                        ss.as_string(), cause);
+      }
     } else {
 
       // Step 6
       set_init_state(being_initialized);
       set_init_thread(jt);
-    }
-  }
-
-  // Throw error outside lock
-  if (throw_error) {
-    DTRACE_CLASSINIT_PROBE_WAIT(erroneous, -1, wait);
-    ResourceMark rm(THREAD);
-    Handle cause(THREAD, get_initialization_error(THREAD));
-
-    stringStream ss;
-    ss.print("Could not initialize class %s", external_name());
-    if (cause.is_null()) {
-      THROW_MSG(vmSymbols::java_lang_NoClassDefFoundError(), ss.as_string());
-    } else {
-      THROW_MSG_CAUSE(vmSymbols::java_lang_NoClassDefFoundError(),
-                      ss.as_string(), cause);
+      if (debug_logging_enabled) {
+        ResourceMark rm(jt);
+        log_debug(class, init)("Thread \"%s\" is initializing %s",
+                               jt->name(), external_name());
+      }
     }
   }
 
@@ -1156,7 +1196,7 @@ void InstanceKlass::initialize_impl(TRAPS) {
 
   // Step 9
   if (!HAS_PENDING_EXCEPTION) {
-    set_initialization_state_and_notify(fully_initialized, THREAD);
+    set_initialization_state_and_notify(fully_initialized, CHECK);
     debug_only(vtable().verify(tty, true);)
   }
   else {
@@ -1189,42 +1229,25 @@ void InstanceKlass::initialize_impl(TRAPS) {
 }
 
 
-void InstanceKlass::set_initialization_state_and_notify(ClassState state, JavaThread* current) {
-  MonitorLocker ml(current, _init_monitor);
-
-  if (state == linked && UseVtableBasedCHA && Universe::is_fully_initialized()) {
-    DeoptimizationScope deopt_scope;
-    {
-      // Now mark all code that assumes the class is not linked.
-      // Set state under the Compile_lock also.
-      MutexLocker ml(current, Compile_lock);
-
-      set_init_thread(nullptr); // reset _init_thread before changing _init_state
-      set_init_state(state);
-
-      CodeCache::mark_dependents_on(&deopt_scope, this);
-    }
-    // Perform the deopt handshake outside Compile_lock.
-    deopt_scope.deoptimize_marked();
+void InstanceKlass::set_initialization_state_and_notify(ClassState state, TRAPS) {
+  Handle h_init_lock(THREAD, init_lock());
+  if (h_init_lock() != nullptr) {
+    ObjectLocker ol(h_init_lock, THREAD);
+    set_init_thread(nullptr); // reset _init_thread before changing _init_state
+    set_init_state(state);
+    fence_and_clear_init_lock();
+    ol.notify_all(CHECK);
   } else {
+    assert(h_init_lock() != nullptr, "The initialization state should never be set twice");
     set_init_thread(nullptr); // reset _init_thread before changing _init_state
     set_init_state(state);
   }
-  ml.notify_all();
 }
 
 // Update hierarchy. This is done before the new klass has been added to the SystemDictionary. The Compile_lock
 // is grabbed, to ensure that the compiler is not using the class hierarchy.
-void InstanceKlass::add_to_hierarchy(JavaThread* current) {
+void InstanceKlass::add_to_hierarchy_impl(JavaThread* current) {
   assert(!SafepointSynchronize::is_at_safepoint(), "must NOT be at safepoint");
-
-  // In case we are not using CHA based vtables we need to make sure the loaded
-  // deopt is completed before anyone links this class.
-  // Linking is done with _init_monitor held, by loading and deopting with it
-  // held we make sure the deopt is completed before linking.
-  if (!UseVtableBasedCHA) {
-    init_monitor()->lock();
-  }
 
   DeoptimizationScope deopt_scope;
   {
@@ -1247,11 +1270,25 @@ void InstanceKlass::add_to_hierarchy(JavaThread* current) {
   }
   // Perform the deopt handshake outside Compile_lock.
   deopt_scope.deoptimize_marked();
+}
 
-  if (!UseVtableBasedCHA) {
-    init_monitor()->unlock();
+void InstanceKlass::add_to_hierarchy(JavaThread* current) {
+
+  if (UseVtableBasedCHA || !Universe::is_fully_initialized()) {
+    add_to_hierarchy_impl(current);
+  } else {
+    // In case we are not using CHA based vtables we need to make sure the loaded
+    // deopt is completed before anyone links this class.
+    // Linking is done with init_lock held, by loading and deopting with it
+    // held we make sure the deopt is completed before linking.
+    Handle h_init_lock(current, init_lock());
+    ObjectLocker ol(h_init_lock, current);
+    add_to_hierarchy_impl(current);
+
+    // This doesn't need a notify because the wait is only on the class initialization path.
   }
 }
+
 
 InstanceKlass* InstanceKlass::implementor() const {
   InstanceKlass* volatile* ik = adr_implementor();
@@ -1553,7 +1590,9 @@ void InstanceKlass::call_class_initializer(TRAPS) {
     LogStream ls(lt);
     ls.print("%d Initializing ", call_class_initializer_counter++);
     name()->print_value_on(&ls);
-    ls.print_cr("%s (" PTR_FORMAT ")", h_method() == nullptr ? "(no method)" : "", p2i(this));
+    ls.print_cr("%s (" PTR_FORMAT ") by thread \"%s\"",
+                h_method() == nullptr ? "(no method)" : "", p2i(this),
+                THREAD->name());
   }
   if (h_method() != nullptr) {
     JavaCallArguments args; // No arguments
@@ -1565,16 +1604,17 @@ void InstanceKlass::call_class_initializer(TRAPS) {
 
 void InstanceKlass::mask_for(const methodHandle& method, int bci,
   InterpreterOopMap* entry_for) {
-  // Lazily create the _oop_map_cache at first request
-  // Lock-free access requires load_acquire.
+  // Lazily create the _oop_map_cache at first request.
+  // Load_acquire is needed to safely get instance published with CAS by another thread.
   OopMapCache* oop_map_cache = Atomic::load_acquire(&_oop_map_cache);
   if (oop_map_cache == nullptr) {
-    MutexLocker x(OopMapCacheAlloc_lock);
-    // Check if _oop_map_cache was allocated while we were waiting for this lock
-    if ((oop_map_cache = _oop_map_cache) == nullptr) {
-      oop_map_cache = new OopMapCache();
-      // Ensure _oop_map_cache is stable, since it is examined without a lock
-      Atomic::release_store(&_oop_map_cache, oop_map_cache);
+    // Try to install new instance atomically.
+    oop_map_cache = new OopMapCache();
+    OopMapCache* other = Atomic::cmpxchg(&_oop_map_cache, (OopMapCache*)nullptr, oop_map_cache);
+    if (other != nullptr) {
+      // Someone else managed to install before us, ditch local copy and use the existing one.
+      delete oop_map_cache;
+      oop_map_cache = other;
     }
   }
   // _oop_map_cache is constant after init; lookup below does its own locking.
@@ -2601,7 +2641,6 @@ void InstanceKlass::remove_unshareable_info() {
   _nest_host = nullptr;
   init_shared_package_entry();
   _dep_context_last_cleaned = 0;
-  _init_monitor = nullptr;
 
   remove_unshareable_flags();
 }
@@ -2703,9 +2742,6 @@ void InstanceKlass::restore_unshareable_info(ClassLoaderData* loader_data, Handl
   if (DiagnoseSyncOnValueBasedClasses && has_value_based_class_annotation()) {
     set_is_value_based();
   }
-
-  // restore the monitor
-  _init_monitor = create_init_monitor("InstanceKlassInitMonitorRestored_lock");
 }
 
 // Check if a class or any of its supertypes has a version older than 50.
@@ -2800,9 +2836,6 @@ void InstanceKlass::release_C_heap_structures(bool release_sub_metadata) {
   if (release_sub_metadata) {
     methods_do(method_release_C_heap_structures);
   }
-
-  // Destroy the init_monitor
-  delete _init_monitor;
 
   // Deallocate oop map cache
   if (_oop_map_cache != nullptr) {
@@ -3469,7 +3502,7 @@ nmethod* InstanceKlass::lookup_osr_nmethod(const Method* m, int bci, int comp_le
 #define BULLET  " - "
 
 static const char* state_names[] = {
-  "allocated", "loaded", "being_linked", "linked", "being_initialized", "fully_initialized", "initialization_error"
+  "allocated", "loaded", "linked", "being_initialized", "fully_initialized", "initialization_error"
 };
 
 static void print_vtable(intptr_t* start, int len, outputStream* st) {
@@ -3534,38 +3567,31 @@ void InstanceKlass::print_on(outputStream* st) const {
     }
   }
   st->print(BULLET"method ordering:   "); method_ordering()->print_value_on(st);      st->cr();
-  st->print(BULLET"default_methods:   "); default_methods()->print_value_on(st);      st->cr();
-  if (Verbose && default_methods() != nullptr) {
-    Array<Method*>* method_array = default_methods();
-    for (int i = 0; i < method_array->length(); i++) {
-      st->print("%d : ", i); method_array->at(i)->print_value(); st->cr();
+  if (default_methods() != nullptr) {
+    st->print(BULLET"default_methods:   "); default_methods()->print_value_on(st);    st->cr();
+    if (Verbose) {
+      Array<Method*>* method_array = default_methods();
+      for (int i = 0; i < method_array->length(); i++) {
+        st->print("%d : ", i); method_array->at(i)->print_value(); st->cr();
+      }
     }
   }
-  if (default_vtable_indices() != nullptr) {
-    st->print(BULLET"default vtable indices:   "); default_vtable_indices()->print_value_on(st);       st->cr();
-  }
+  print_on_maybe_null(st, BULLET"default vtable indices:   ", default_vtable_indices());
   st->print(BULLET"local interfaces:  "); local_interfaces()->print_value_on(st);      st->cr();
   st->print(BULLET"trans. interfaces: "); transitive_interfaces()->print_value_on(st); st->cr();
   st->print(BULLET"constants:         "); constants()->print_value_on(st);         st->cr();
-  if (class_loader_data() != nullptr) {
-    st->print(BULLET"class loader data:  ");
-    class_loader_data()->print_value_on(st);
-    st->cr();
-  }
-  if (source_file_name() != nullptr) {
-    st->print(BULLET"source file:       ");
-    source_file_name()->print_value_on(st);
-    st->cr();
-  }
+
+  print_on_maybe_null(st, BULLET"class loader data:  ", class_loader_data());
+  print_on_maybe_null(st, BULLET"source file:       ", source_file_name());
   if (source_debug_extension() != nullptr) {
     st->print(BULLET"source debug extension:       ");
     st->print("%s", source_debug_extension());
     st->cr();
   }
-  st->print(BULLET"class annotations:       "); class_annotations()->print_value_on(st); st->cr();
-  st->print(BULLET"class type annotations:  "); class_type_annotations()->print_value_on(st); st->cr();
-  st->print(BULLET"field annotations:       "); fields_annotations()->print_value_on(st); st->cr();
-  st->print(BULLET"field type annotations:  "); fields_type_annotations()->print_value_on(st); st->cr();
+  print_on_maybe_null(st, BULLET"class annotations:       ", class_annotations());
+  print_on_maybe_null(st, BULLET"class type annotations:  ", class_type_annotations());
+  print_on_maybe_null(st, BULLET"field annotations:       ", fields_annotations());
+  print_on_maybe_null(st, BULLET"field type annotations:  ", fields_type_annotations());
   {
     bool have_pv = false;
     // previous versions are linked together through the InstanceKlass
@@ -3580,16 +3606,10 @@ void InstanceKlass::print_on(outputStream* st) const {
     if (have_pv) st->cr();
   }
 
-  if (generic_signature() != nullptr) {
-    st->print(BULLET"generic signature: ");
-    generic_signature()->print_value_on(st);
-    st->cr();
-  }
+  print_on_maybe_null(st, BULLET"generic signature: ", generic_signature());
   st->print(BULLET"inner classes:     "); inner_classes()->print_value_on(st);     st->cr();
   st->print(BULLET"nest members:     "); nest_members()->print_value_on(st);     st->cr();
-  if (record_components() != nullptr) {
-    st->print(BULLET"record components:     "); record_components()->print_value_on(st);     st->cr();
-  }
+  print_on_maybe_null(st, BULLET"record components:     ", record_components());
   st->print(BULLET"permitted subclasses:     "); permitted_subclasses()->print_value_on(st);     st->cr();
   if (java_mirror() != nullptr) {
     st->print(BULLET"java mirror:       ");
@@ -4024,17 +4044,13 @@ void JNIid::verify(Klass* holder) {
 }
 
 void InstanceKlass::set_init_state(ClassState state) {
-  if (state > loaded) {
-    assert_lock_strong(_init_monitor);
-  }
 #ifdef ASSERT
   bool good_state = is_shared() ? (_init_state <= state)
                                                : (_init_state < state);
-  bool link_failed = _init_state == being_linked && state == loaded;
-  assert(good_state || state == allocated || link_failed, "illegal state transition");
+  assert(good_state || state == allocated, "illegal state transition");
 #endif
   assert(_init_thread == nullptr, "should be cleared before state change");
-  Atomic::store(&_init_state, state);
+  _init_state = state;
 }
 
 #if INCLUDE_JVMTI
@@ -4057,6 +4073,23 @@ bool InstanceKlass::should_clean_previous_versions_and_reset() {
      ret ? "true" : "false");
   _should_clean_previous_versions = false;
   return ret;
+}
+
+// This nulls out jmethodIDs for all methods in 'klass'
+// It needs to be called explicitly for all previous versions of a class because these may not be cleaned up
+// during class unloading.
+// We can not use the jmethodID cache associated with klass directly because the 'previous' versions
+// do not have the jmethodID cache filled in. Instead, we need to lookup jmethodID for each method and this
+// is expensive - O(n) for one jmethodID lookup. For all contained methods it is O(n^2).
+// The reason for expensive jmethodID lookup for each method is that there is no direct link between method and jmethodID.
+void InstanceKlass::clear_jmethod_ids(InstanceKlass* klass) {
+  Array<Method*>* method_refs = klass->methods();
+  for (int k = 0; k < method_refs->length(); k++) {
+    Method* method = method_refs->at(k);
+    if (method != nullptr && method->is_obsolete()) {
+      method->clear_jmethod_id();
+    }
+  }
 }
 
 // Purge previous versions before adding new previous versions of the class and
@@ -4102,6 +4135,7 @@ void InstanceKlass::purge_previous_version_list() {
       // Unlink from previous version list.
       assert(pv_node->class_loader_data() == loader_data, "wrong loader_data");
       InstanceKlass* next = pv_node->previous_versions();
+      clear_jmethod_ids(pv_node); // jmethodID maintenance for the unloaded class
       pv_node->link_previous_versions(nullptr);   // point next to null
       last->link_previous_versions(next);
       // Delete this node directly. Nothing is referring to it and we don't
@@ -4321,4 +4355,3 @@ void ClassHierarchyIterator::next() {
   _current = _current->next_sibling();
   return; // visit next sibling subclass
 }
-

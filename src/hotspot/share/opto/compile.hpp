@@ -32,6 +32,7 @@
 #include "compiler/compilerOracle.hpp"
 #include "compiler/compileBroker.hpp"
 #include "compiler/compilerEvent.hpp"
+#include "compiler/cHeapStringHolder.hpp"
 #include "libadt/dict.hpp"
 #include "libadt/vectset.hpp"
 #include "memory/resourceArea.hpp"
@@ -135,7 +136,7 @@ class NodeCloneInfo {
   NodeCloneInfo(uint64_t idx_clone_orig) : _idx_clone_orig(idx_clone_orig) {}
   NodeCloneInfo(node_idx_t x, int g) : _idx_clone_orig(0) { set(x, g); }
 
-  void dump() const;
+  void dump_on(outputStream* st) const;
 };
 
 class CloneMap {
@@ -158,7 +159,7 @@ class CloneMap {
   int max_gen()                   const;
   void clone(Node* old, Node* nnn, int gen);
   void verify_insert_and_clone(Node* old, Node* nnn, int gen);
-  void dump(node_idx_t key)       const;
+  void dump(node_idx_t key, outputStream* st) const;
 
   int  clone_idx() const                         { return _clone_idx; }
   void set_clone_idx(int x)                      { _clone_idx = x; }
@@ -350,7 +351,7 @@ class Compile : public Phase {
   ciEnv*                _env;                   // CI interface
   DirectiveSet*         _directive;             // Compiler directive
   CompileLog*           _log;                   // from CompilerThread
-  const char*           _failure_reason;        // for record_failure/failing pattern
+  CHeapStringHolder     _failure_reason;        // for record_failure/failing pattern
   GrowableArray<CallGenerator*> _intrinsics;    // List of intrinsics.
   GrowableArray<Node*>  _macro_nodes;           // List of nodes which need to be expanded before matching.
   GrowableArray<Node*>  _parse_predicate_opaqs; // List of Opaque1 nodes for the Parse Predicates.
@@ -741,6 +742,7 @@ class Compile : public Phase {
   void add_coarsened_locks(GrowableArray<AbstractLockNode*>& locks);
   void remove_coarsened_lock(Node* n);
   bool coarsened_locks_consistent();
+  void mark_unbalanced_boxes() const;
 
   bool       post_loop_opts_phase() { return _post_loop_opts_phase;  }
   void   set_post_loop_opts_phase() { _post_loop_opts_phase = true;  }
@@ -775,11 +777,22 @@ class Compile : public Phase {
   Arena*      comp_arena()           { return &_comp_arena; }
   ciEnv*      env() const            { return _env; }
   CompileLog* log() const            { return _log; }
-  bool        failing() const        { return _env->failing() || _failure_reason != nullptr; }
-  const char* failure_reason() const { return (_env->failing()) ? _env->failure_reason() : _failure_reason; }
+
+  bool        failing() const        {
+    return _env->failing() ||
+           _failure_reason.get() != nullptr;
+  }
+
+  const char* failure_reason() const {
+    return _env->failing() ? _env->failure_reason()
+                           : _failure_reason.get();
+  }
 
   bool failure_reason_is(const char* r) const {
-    return (r == _failure_reason) || (r != nullptr && _failure_reason != nullptr && strcmp(r, _failure_reason) == 0);
+    return (r == _failure_reason.get()) ||
+           (r != nullptr &&
+            _failure_reason.get() != nullptr &&
+            strcmp(r, _failure_reason.get()) == 0);
   }
 
   void record_failure(const char* reason);
@@ -1032,6 +1045,7 @@ class Compile : public Phase {
   bool inline_incrementally_one();
   void inline_incrementally_cleanup(PhaseIterGVN& igvn);
   void inline_incrementally(PhaseIterGVN& igvn);
+  bool should_delay_inlining() { return AlwaysIncrementalInline || (StressIncrementalInlining && (random() % 2) == 0); }
   void inline_string_calls(bool parse_time);
   void inline_boxing_calls(PhaseIterGVN& igvn);
   bool optimize_loops(PhaseIterGVN& igvn, LoopOptsMode mode);

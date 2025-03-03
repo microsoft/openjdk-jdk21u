@@ -602,7 +602,6 @@ public class JSR166TestCase extends TestCase {
             ScheduledExecutorSubclassTest.suite(),
             SemaphoreTest.suite(),
             SynchronousQueueTest.suite(),
-            SystemTest.suite(),
             ThreadLocalTest.suite(),
             ThreadPoolExecutorTest.suite(),
             ThreadPoolExecutorSubclassTest.suite(),
@@ -667,6 +666,7 @@ public class JSR166TestCase extends TestCase {
         if (atLeastJava20()) {
             String[] java20TestClassNames = {
                 "ForkJoinPool20Test",
+                "SynchronousQueue20Test",
             };
             addNamedTestClasses(suite, java20TestClassNames);
         }

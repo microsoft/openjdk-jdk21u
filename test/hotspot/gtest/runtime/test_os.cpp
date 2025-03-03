@@ -38,6 +38,8 @@
 #include "os_windows.hpp"
 #endif
 
+using testing::HasSubstr;
+
 static size_t small_page_size() {
   return os::vm_page_size();
 }
@@ -169,31 +171,31 @@ static void do_test_print_hex_dump(address addr, size_t len, int unitsize, const
   buf[0] = '\0';
   stringStream ss(buf, sizeof(buf));
   os::print_hex_dump(&ss, addr, addr + len, unitsize);
-//  tty->print_cr("expected: %s", expected);
-//  tty->print_cr("result: %s", buf);
-  ASSERT_NE(strstr(buf, expected), (char*)NULL);
+  // tty->print_cr("expected: %s", expected);
+  // tty->print_cr("result: %s", buf);
+  EXPECT_THAT(buf, HasSubstr(expected));
 }
 
 TEST_VM(os, test_print_hex_dump) {
   const char* pattern [4] = {
 #ifdef VM_LITTLE_ENDIAN
-    "00 01 02 03 04 05 06 07",
-    "0100 0302 0504 0706",
-    "03020100 07060504",
-    "0706050403020100"
+    "00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f",
+    "0100 0302 0504 0706 0908 0b0a 0d0c 0f0e",
+    "03020100 07060504 0b0a0908 0f0e0d0c",
+    "0706050403020100 0f0e0d0c0b0a0908"
 #else
-    "00 01 02 03 04 05 06 07",
-    "0001 0203 0405 0607",
-    "00010203 04050607",
-    "0001020304050607"
+    "00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f",
+    "0001 0203 0405 0607 0809 0a0b 0c0d 0e0f",
+    "00010203 04050607 08090a0b 0c0d0e0f",
+    "0001020304050607 08090a0b0c0d0e0f"
 #endif
   };
 
   const char* pattern_not_readable [4] = {
-    "?? ?? ?? ?? ?? ?? ?? ??",
-    "???? ???? ???? ????",
-    "???????? ????????",
-    "????????????????"
+    "?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??",
+    "???? ???? ???? ???? ???? ???? ???? ????",
+    "???????? ???????? ???????? ????????",
+    "???????????????? ????????????????"
   };
 
   // On AIX, zero page is readable.
@@ -504,7 +506,9 @@ TEST_VM(os, release_multi_mappings) {
 
   // ...re-reserve the middle stripes. This should work unless release silently failed.
   address p2 = (address)os::attempt_reserve_memory_at((char*)p_middle_stripes, middle_stripe_len);
+
   ASSERT_EQ(p2, p_middle_stripes);
+
   PRINT_MAPPINGS("C");
 
   // Clean up. Release all mappings.
@@ -548,26 +552,29 @@ TEST_VM(os, release_bad_ranges) {
 TEST_VM(os, release_one_mapping_multi_commits) {
   // Test that we can release an area consisting of interleaved
   //  committed and uncommitted regions:
-  const size_t stripe_len = 4 * M;
-  const int num_stripes = 4;
+  const size_t stripe_len = os::vm_allocation_granularity();
+  const int num_stripes = 6;
   const size_t total_range_len = stripe_len * num_stripes;
 
   // reserve address space...
   address p = reserve_one_commit_multiple(num_stripes, stripe_len);
-  ASSERT_NE(p, (address)NULL);
   PRINT_MAPPINGS("A");
+  ASSERT_NE(p, (address)nullptr);
 
-  // .. release it...
-  ASSERT_TRUE(os::release_memory((char*)p, total_range_len));
+  // // make things even more difficult by trying to reserve at the border of the region
+  address border = p + num_stripes * stripe_len;
+  address p2 = (address)os::attempt_reserve_memory_at((char*)border, stripe_len);
   PRINT_MAPPINGS("B");
 
-  // re-reserve it. This should work unless release failed.
-  address p2 = (address)os::attempt_reserve_memory_at((char*)p, total_range_len);
-  ASSERT_EQ(p2, p);
-  PRINT_MAPPINGS("C");
+  ASSERT_TRUE(p2 == nullptr || p2 == border);
 
   ASSERT_TRUE(os::release_memory((char*)p, total_range_len));
-  PRINT_MAPPINGS("D");
+  PRINT_MAPPINGS("C");
+
+  if (p2 != nullptr) {
+    ASSERT_TRUE(os::release_memory((char*)p2, stripe_len));
+    PRINT_MAPPINGS("D");
+  }
 }
 
 static void test_show_mappings(address start, size_t size) {
@@ -768,7 +775,7 @@ TEST_VM(os, pagesizes_test_print) {
   char buffer[256];
   stringStream ss(buffer, sizeof(buffer));
   pss.print_on(&ss);
-  ASSERT_EQ(strcmp(expected, buffer), 0);
+  EXPECT_STREQ(expected, buffer);
 }
 
 TEST_VM(os, dll_address_to_function_and_library_name) {
@@ -777,9 +784,9 @@ TEST_VM(os, dll_address_to_function_and_library_name) {
   stringStream st(output, sizeof(output));
 
 #define EXPECT_CONTAINS(haystack, needle) \
-  EXPECT_NE(::strstr(haystack, needle), (char*)NULL)
+  EXPECT_THAT(haystack, HasSubstr(needle));
 #define EXPECT_DOES_NOT_CONTAIN(haystack, needle) \
-  EXPECT_EQ(::strstr(haystack, needle), (char*)NULL)
+  EXPECT_THAT(haystack, Not(HasSubstr(needle)));
 // #define LOG(...) tty->print_cr(__VA_ARGS__); // enable if needed
 #define LOG(...)
 

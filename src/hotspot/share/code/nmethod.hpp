@@ -196,7 +196,7 @@ class nmethod : public CompiledMethod {
   address _verified_entry_point;             // entry point without class check
   address _osr_entry_point;                  // entry point for on stack replacement
 
-  nmethod* _unlinked_next;
+  bool _is_unlinked;
 
   // Shared fields for all nmethod's
   int _entry_bci;      // != InvocationEntryBci if this nmethod is an on-stack replacement method
@@ -228,6 +228,8 @@ class nmethod : public CompiledMethod {
   int _orig_pc_offset;
 
   int _compile_id;                           // which compilation made this nmethod
+
+  int _num_stack_arg_slots;                  // Number of arguments passed on the stack
 
 #if INCLUDE_RTM_OPT
   // RTM state at compile time. Used during deoptimization to decide
@@ -441,8 +443,8 @@ class nmethod : public CompiledMethod {
   virtual bool is_unloading();
   virtual void do_unloading(bool unloading_occurred);
 
-  nmethod* unlinked_next() const                  { return _unlinked_next; }
-  void set_unlinked_next(nmethod* next)           { _unlinked_next = next; }
+  bool is_unlinked() const                        { return _is_unlinked; }
+  void set_is_unlinked()                          { assert(!_is_unlinked, "already unlinked"); _is_unlinked = true; }
 
 #if INCLUDE_RTM_OPT
   // rtm state accessing and manipulating
@@ -515,6 +517,10 @@ public:
   nmethod* osr_link() const                       { return _osr_link; }
   void     set_osr_link(nmethod *n)               { _osr_link = n; }
 
+  int num_stack_arg_slots(bool rounded = true) const {
+    return rounded ? align_up(_num_stack_arg_slots, 2) : _num_stack_arg_slots;
+  }
+
   // Verify calls to dead methods have been cleaned.
   void verify_clean_inline_caches();
 
@@ -522,7 +528,7 @@ public:
   void unlink();
 
   // Deallocate this nmethod - called by the GC
-  void flush();
+  void purge(bool free_code_cache_data, bool unregister_nmethod);
 
   // See comment at definition of _last_seen_on_stack
   void mark_as_maybe_on_stack();

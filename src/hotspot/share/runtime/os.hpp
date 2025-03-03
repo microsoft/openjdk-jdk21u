@@ -219,6 +219,10 @@ class os: AllStatic {
   static void   pd_free_memory(char *addr, size_t bytes, size_t alignment_hint);
   static void   pd_realign_memory(char *addr, size_t bytes, size_t alignment_hint);
 
+  // Returns 0 if pretouch is done via platform dependent method, or otherwise
+  // returns page_size that should be used for the common method.
+  static size_t pd_pretouch_memory(void* first, void* last, size_t page_size);
+
   static char*  pd_reserve_memory_special(size_t size, size_t alignment, size_t page_size,
 
                                           char* addr, bool executable);
@@ -663,6 +667,8 @@ class os: AllStatic {
   static const char*    get_temp_directory();
   static const char*    get_current_directory(char *buf, size_t buflen);
 
+  static void           prepare_native_symbols();
+
   // Builds the platform-specific name of a library.
   // Returns false if the buffer is too small.
   static bool           dll_build_name(char* buffer, size_t size,
@@ -1053,6 +1059,7 @@ class os: AllStatic {
                                 char pathSep);
   static bool set_boot_path(char fileSep, char pathSep);
 
+  static bool pd_dll_unload(void* libhandle, char* ebuf, int ebuflen);
 };
 
 // Note that "PAUSE" is almost always used with synchronization

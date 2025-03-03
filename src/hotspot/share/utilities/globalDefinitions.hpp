@@ -520,10 +520,18 @@ inline size_t pointer_delta(const MetaWord* left, const MetaWord* right) {
 // everything: it isn't intended to make sure that pointer types are
 // compatible, for example.
 template <typename T2, typename T1>
-T2 checked_cast(T1 thing) {
+constexpr T2 checked_cast(T1 thing) {
   T2 result = static_cast<T2>(thing);
   assert(static_cast<T1>(result) == thing, "must be");
   return result;
+}
+
+// pointer_delta_as_int is called to do pointer subtraction for nearby pointers that
+// returns a non-negative int, usually used as a size of a code buffer range.
+// This scales to sizeof(T).
+template <typename T>
+inline int pointer_delta_as_int(const volatile T* left, const volatile T* right) {
+  return checked_cast<int>(pointer_delta(left, right, sizeof(T)));
 }
 
 // Need the correct linkage to call qsort without warnings
@@ -641,7 +649,7 @@ const bool support_IRIW_for_not_multiple_copy_atomic_cpu = PPC64_ONLY(true) NOT_
 
 // The expected size in bytes of a cache line, used to pad data structures.
 #ifndef DEFAULT_CACHE_LINE_SIZE
-  #define DEFAULT_CACHE_LINE_SIZE 64
+#error "Platform should define DEFAULT_CACHE_LINE_SIZE"
 #endif
 
 
@@ -667,7 +675,7 @@ inline double fabsd(double value) {
 // is zero, return 0.0.
 template<typename T>
 inline double percent_of(T numerator, T denominator) {
-  return denominator != 0 ? (double)numerator / denominator * 100.0 : 0.0;
+  return denominator != 0 ? (double)numerator / (double)denominator * 100.0 : 0.0;
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -1356,6 +1364,10 @@ template<typename K> bool primitive_equals(const K& k0, const K& k1) {
   return k0 == k1;
 }
 
+template<typename K> int primitive_compare(const K& k0, const K& k1) {
+  return ((k0 < k1) ? -1 : (k0 == k1) ? 0 : 1);
+}
+
 //----------------------------------------------------------------------------------------------------
 
 // Allow use of C++ thread_local when approved - see JDK-8282469.
@@ -1364,5 +1376,9 @@ template<typename K> bool primitive_equals(const K& k0, const K& k1) {
 // Converts any type T to a reference type.
 template<typename T>
 std::add_rvalue_reference_t<T> declval() noexcept;
+
+// Quickly test to make sure IEEE-754 subnormal numbers are correctly
+// handled.
+bool IEEE_subnormal_handling_OK();
 
 #endif // SHARE_UTILITIES_GLOBALDEFINITIONS_HPP

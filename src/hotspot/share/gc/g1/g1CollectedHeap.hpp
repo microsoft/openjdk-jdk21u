@@ -753,7 +753,7 @@ private:
   // false if unable to do the collection due to the GC locker being
   // active, true otherwise.
   // precondition: at safepoint on VM thread
-  // precondition: !is_gc_active()
+  // precondition: !is_stw_gc_active()
   bool do_collection_pause_at_safepoint();
 
   // Helper for do_collection_pause_at_safepoint, containing the guts
@@ -1264,6 +1264,10 @@ public:
 
   // Performs cleaning of data structures after class unloading.
   void complete_cleaning(bool class_unloading_occurred);
+
+  void unload_classes_and_code(const char* description, BoolObjectClosure* cl, GCTimer* timer);
+
+  void bulk_unregister_nmethods();
 
   // Verification
 

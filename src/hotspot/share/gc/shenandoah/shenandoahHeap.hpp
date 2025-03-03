@@ -281,6 +281,7 @@ public:
   };
 
 private:
+  bool _gc_state_changed;
   ShenandoahSharedBitmap _gc_state;
   ShenandoahSharedFlag   _degenerated_gc_in_progress;
   ShenandoahSharedFlag   _full_gc_in_progress;
@@ -288,12 +289,19 @@ private:
   ShenandoahSharedFlag   _progress_last_gc;
   ShenandoahSharedFlag   _concurrent_strong_root_in_progress;
 
-  void set_gc_state_all_threads(char state);
-  void set_gc_state_mask(uint mask, bool value);
+  // This updates the singlular, global gc state. This must happen on a safepoint.
+  void set_gc_state(uint mask, bool value);
 
 public:
   char gc_state() const;
-  static address gc_state_addr();
+
+  // This copies the global gc state into a thread local variable for java threads.
+  // It is primarily intended to support quick access at barriers.
+  void propagate_gc_state_to_java_threads();
+
+  // This is public to support assertions that the state hasn't been changed off of
+  // a safepoint and that any changes were propagated to java threads after the safepoint.
+  bool has_gc_state_changed() const { return _gc_state_changed; }
 
   void set_concurrent_mark_in_progress(bool in_progress);
   void set_evacuation_in_progress(bool in_progress);
@@ -314,7 +322,7 @@ public:
   inline bool is_full_gc_in_progress() const;
   inline bool is_full_gc_move_in_progress() const;
   inline bool has_forwarded_objects() const;
-  inline bool is_gc_in_progress_mask(uint mask) const;
+
   inline bool is_stw_gc_in_progress() const;
   inline bool is_concurrent_strong_root_in_progress() const;
   inline bool is_concurrent_weak_root_in_progress() const;
@@ -334,7 +342,6 @@ private:
   bool try_cancel_gc();
 
 public:
-  static address cancelled_gc_addr();
 
   inline bool cancelled_gc() const;
   inline bool check_cancelled_gc_and_yield(bool sts_active = true);
@@ -354,7 +361,6 @@ private:
   void prepare_gc();
   void prepare_regions_and_collection_set(bool concurrent);
   // Evacuation
-  void prepare_evacuation(bool concurrent);
   void evacuate_collection_set(bool concurrent);
   // Concurrent root processing
   void prepare_concurrent_roots();
@@ -470,6 +476,7 @@ public:
   MemRegion reserved_region() const { return _reserved; }
   bool is_in_reserved(const void* addr) const { return _reserved.contains(addr); }
 
+  void collect_as_vm_thread(GCCause::Cause cause) override;
   void collect(GCCause::Cause cause) override;
   void do_full_collection(bool clear_all_soft_refs) override;
 

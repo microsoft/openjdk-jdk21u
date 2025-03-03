@@ -1147,20 +1147,20 @@ void MacroAssembler::addpd(XMMRegister dst, AddressLiteral src, Register rscratc
 // Stub code is generated once and never copied.
 // NMethods can't use this because they get copied and we can't force alignment > 32 bytes.
 void MacroAssembler::align64() {
-  align(64, (unsigned long long) pc());
+  align(64, (uint)(uintptr_t)pc());
 }
 
 void MacroAssembler::align32() {
-  align(32, (unsigned long long) pc());
+  align(32, (uint)(uintptr_t)pc());
 }
 
-void MacroAssembler::align(int modulus) {
+void MacroAssembler::align(uint modulus) {
   // 8273459: Ensure alignment is possible with current segment alignment
-  assert(modulus <= CodeEntryAlignment, "Alignment must be <= CodeEntryAlignment");
+  assert(modulus <= (uintx)CodeEntryAlignment, "Alignment must be <= CodeEntryAlignment");
   align(modulus, offset());
 }
 
-void MacroAssembler::align(int modulus, int target) {
+void MacroAssembler::align(uint modulus, uint target) {
   if (target % modulus != 0) {
     nop(modulus - (target % modulus));
   }
@@ -1337,7 +1337,12 @@ void MacroAssembler::call(AddressLiteral entry, Register rscratch) {
 
 void MacroAssembler::ic_call(address entry, jint method_index) {
   RelocationHolder rh = virtual_call_Relocation::spec(pc(), method_index);
+#ifdef _LP64
+  // Needs full 64-bit immediate for later patching.
+  mov64(rax, (intptr_t)Universe::non_oop_word());
+#else
   movptr(rax, (intptr_t)Universe::non_oop_word());
+#endif
   call(AddressLiteral(entry, rh));
 }
 
@@ -1878,92 +1883,6 @@ void MacroAssembler::cmpoop(Register src1, jobject src2, Register rscratch) {
 }
 #endif
 
-void MacroAssembler::cvtss2sd(XMMRegister dst, XMMRegister src) {
-  if ((UseAVX > 0) && (dst != src)) {
-    xorpd(dst, dst);
-  }
-  Assembler::cvtss2sd(dst, src);
-}
-
-void MacroAssembler::cvtss2sd(XMMRegister dst, Address src) {
-  if (UseAVX > 0) {
-    xorpd(dst, dst);
-  }
-  Assembler::cvtss2sd(dst, src);
-}
-
-void MacroAssembler::cvtsd2ss(XMMRegister dst, XMMRegister src) {
-  if ((UseAVX > 0) && (dst != src)) {
-    xorps(dst, dst);
-  }
-  Assembler::cvtsd2ss(dst, src);
-}
-
-void MacroAssembler::cvtsd2ss(XMMRegister dst, Address src) {
-  if (UseAVX > 0) {
-    xorps(dst, dst);
-  }
-  Assembler::cvtsd2ss(dst, src);
-}
-
-void MacroAssembler::cvtsi2sdl(XMMRegister dst, Register src) {
-  if (UseAVX > 0) {
-    xorpd(dst, dst);
-  }
-  Assembler::cvtsi2sdl(dst, src);
-}
-
-void MacroAssembler::cvtsi2sdl(XMMRegister dst, Address src) {
-  if (UseAVX > 0) {
-    xorpd(dst, dst);
-  }
-  Assembler::cvtsi2sdl(dst, src);
-}
-
-void MacroAssembler::cvtsi2ssl(XMMRegister dst, Register src) {
-  if (UseAVX > 0) {
-    xorps(dst, dst);
-  }
-  Assembler::cvtsi2ssl(dst, src);
-}
-
-void MacroAssembler::cvtsi2ssl(XMMRegister dst, Address src) {
-  if (UseAVX > 0) {
-    xorps(dst, dst);
-  }
-  Assembler::cvtsi2ssl(dst, src);
-}
-
-#ifdef _LP64
-void MacroAssembler::cvtsi2sdq(XMMRegister dst, Register src) {
-  if (UseAVX > 0) {
-    xorpd(dst, dst);
-  }
-  Assembler::cvtsi2sdq(dst, src);
-}
-
-void MacroAssembler::cvtsi2sdq(XMMRegister dst, Address src) {
-  if (UseAVX > 0) {
-    xorpd(dst, dst);
-  }
-  Assembler::cvtsi2sdq(dst, src);
-}
-
-void MacroAssembler::cvtsi2ssq(XMMRegister dst, Register src) {
-  if (UseAVX > 0) {
-    xorps(dst, dst);
-  }
-  Assembler::cvtsi2ssq(dst, src);
-}
-
-void MacroAssembler::cvtsi2ssq(XMMRegister dst, Address src) {
-  if (UseAVX > 0) {
-    xorps(dst, dst);
-  }
-  Assembler::cvtsi2ssq(dst, src);
-}
-#endif  // _LP64
-
 void MacroAssembler::locked_cmpxchgptr(Register reg, AddressLiteral adr, Register rscratch) {
   assert(rscratch != noreg || always_reachable(adr), "missing");
 
@@ -2121,10 +2040,10 @@ void MacroAssembler::post_call_nop() {
   InstructionMark im(this);
   relocate(post_call_nop_Relocation::spec());
   InlineSkippedInstructionsCounter skipCounter(this);
-  emit_int8((int8_t)0x0f);
-  emit_int8((int8_t)0x1f);
-  emit_int8((int8_t)0x84);
-  emit_int8((int8_t)0x00);
+  emit_int8((uint8_t)0x0f);
+  emit_int8((uint8_t)0x1f);
+  emit_int8((uint8_t)0x84);
+  emit_int8((uint8_t)0x00);
   emit_int32(0x00);
 }
 
@@ -2133,11 +2052,11 @@ void MacroAssembler::fat_nop() {
   if (UseAddressNop) {
     addr_nop_5();
   } else {
-    emit_int8((int8_t)0x26); // es:
-    emit_int8((int8_t)0x2e); // cs:
-    emit_int8((int8_t)0x64); // fs:
-    emit_int8((int8_t)0x65); // gs:
-    emit_int8((int8_t)0x90);
+    emit_int8((uint8_t)0x26); // es:
+    emit_int8((uint8_t)0x2e); // cs:
+    emit_int8((uint8_t)0x64); // fs:
+    emit_int8((uint8_t)0x65); // gs:
+    emit_int8((uint8_t)0x90);
   }
 }
 
@@ -2660,7 +2579,15 @@ void MacroAssembler::movptr(Register dst, Address src) {
 
 // src should NEVER be a real pointer. Use AddressLiteral for true pointers
 void MacroAssembler::movptr(Register dst, intptr_t src) {
-  LP64_ONLY(mov64(dst, src)) NOT_LP64(movl(dst, src));
+#ifdef _LP64
+  if (is_simm32(src)) {
+    movq(dst, checked_cast<int32_t>(src));
+  } else {
+    mov64(dst, src);
+  }
+#else
+  movl(dst, src);
+#endif
 }
 
 void MacroAssembler::movptr(Address dst, Register src) {

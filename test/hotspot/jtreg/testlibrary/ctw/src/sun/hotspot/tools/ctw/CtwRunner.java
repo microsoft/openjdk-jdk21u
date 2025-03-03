@@ -38,6 +38,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+import java.util.Random;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -183,7 +184,7 @@ public class CtwRunner {
         while (!done) {
             String[] cmd = cmd(classStart, classStop);
             try {
-                ProcessBuilder pb = ProcessTools.createTestJvm(cmd);
+                ProcessBuilder pb = ProcessTools.createTestJavaProcessBuilder(cmd);
                 String commandLine = pb.command()
                         .stream()
                         .collect(Collectors.joining(" "));
@@ -266,7 +267,7 @@ public class CtwRunner {
     private String[] cmd(long classStart, long classStop) {
         String phase = phaseName(classStart);
         Path file = Paths.get(phase + ".cmd");
-        var rng = Utils.getRandomInstance();
+        Random rng = Utils.getRandomInstance();
 
         ArrayList<String> Args = new ArrayList<String>(Arrays.asList(
                 "-Xbatch",
@@ -293,14 +294,17 @@ public class CtwRunner {
                 String.format("-XX:ReplayDataFile=replay_%s_%%p.log", phase),
                 // MethodHandle MUST NOT be compiled
                 "-XX:CompileCommand=exclude,java/lang/invoke/MethodHandle.*",
-                // Stress* are c2-specific stress flags, so IgnoreUnrecognizedVMOptions is needed
                 "-XX:+IgnoreUnrecognizedVMOptions",
+                // Do not pay extra zapping cost for explicit GC invocations
+                "-XX:-ZapUnusedHeapArea",
+                // Stress* are c2-specific stress flags, so IgnoreUnrecognizedVMOptions is needed
                 "-XX:+StressLCM",
                 "-XX:+StressGCM",
                 "-XX:+StressIGVN",
                 "-XX:+StressCCP",
+                "-XX:+StressIncrementalInlining",
                 // StressSeed is uint
-                "-XX:StressSeed=" + Math.abs(rng.nextInt())));
+                "-XX:StressSeed=" + rng.nextInt(Integer.MAX_VALUE)));
 
         for (String arg : CTW_EXTRA_ARGS.split(",")) {
             Args.add(arg);

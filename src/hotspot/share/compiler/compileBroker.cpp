@@ -845,8 +845,15 @@ void DeoptimizeObjectsALotThread::deoptimize_objects_alot_loop_all() {
 
 
 JavaThread* CompileBroker::make_thread(ThreadType type, jobject thread_handle, CompileQueue* queue, AbstractCompiler* comp, JavaThread* THREAD) {
-  JavaThread* new_thread = nullptr;
+  Handle thread_oop(THREAD, JNIHandles::resolve_non_null(thread_handle));
 
+  if (java_lang_Thread::thread(thread_oop()) != nullptr) {
+    assert(type == compiler_t, "should only happen with reused compiler threads");
+    // The compiler thread hasn't actually exited yet so don't try to reuse it
+    return nullptr;
+  }
+
+  JavaThread* new_thread = nullptr;
   switch (type) {
     case compiler_t:
       assert(comp != nullptr, "Compiler instance missing.");
@@ -875,7 +882,6 @@ JavaThread* CompileBroker::make_thread(ThreadType type, jobject thread_handle, C
   // JavaThread due to lack of resources. We will handle that failure below.
   // Also check new_thread so that static analysis is happy.
   if (new_thread != nullptr && new_thread->osthread() != nullptr) {
-    Handle thread_oop(THREAD, JNIHandles::resolve_non_null(thread_handle));
 
     if (type == compiler_t) {
       CompilerThread::cast(new_thread)->set_compiler(comp);
@@ -1024,18 +1030,34 @@ void CompileBroker::init_compiler_threads() {
 
 void CompileBroker::possibly_add_compiler_threads(JavaThread* THREAD) {
 
+  int old_c2_count = 0, new_c2_count = 0, old_c1_count = 0, new_c1_count = 0;
+  const int c2_tasks_per_thread = 2, c1_tasks_per_thread = 4;
+
+  // Quick check if we already have enough compiler threads without taking the lock.
+  // Numbers may change concurrently, so we read them again after we have the lock.
+  if (_c2_compile_queue != nullptr) {
+    old_c2_count = get_c2_thread_count();
+    new_c2_count = MIN2(_c2_count, _c2_compile_queue->size() / c2_tasks_per_thread);
+  }
+  if (_c1_compile_queue != nullptr) {
+    old_c1_count = get_c1_thread_count();
+    new_c1_count = MIN2(_c1_count, _c1_compile_queue->size() / c1_tasks_per_thread);
+  }
+  if (new_c2_count <= old_c2_count && new_c1_count <= old_c1_count) return;
+
+  // Now, we do the more expensive operations.
   julong free_memory = os::free_memory();
   // If SegmentedCodeCache is off, both values refer to the single heap (with type CodeBlobType::All).
-  size_t available_cc_np  = CodeCache::unallocated_capacity(CodeBlobType::MethodNonProfiled),
-         available_cc_p   = CodeCache::unallocated_capacity(CodeBlobType::MethodProfiled);
+  size_t available_cc_np = CodeCache::unallocated_capacity(CodeBlobType::MethodNonProfiled),
+         available_cc_p  = CodeCache::unallocated_capacity(CodeBlobType::MethodProfiled);
 
-  // Only do attempt to start additional threads if the lock is free.
+  // Only attempt to start additional threads if the lock is free.
   if (!CompileThread_lock->try_lock()) return;
 
   if (_c2_compile_queue != nullptr) {
-    int old_c2_count = _compilers[1]->num_compiler_threads();
-    int new_c2_count = MIN4(_c2_count,
-        _c2_compile_queue->size() / 2,
+    old_c2_count = get_c2_thread_count();
+    new_c2_count = MIN4(_c2_count,
+        _c2_compile_queue->size() / c2_tasks_per_thread,
         (int)(free_memory / (200*M)),
         (int)(available_cc_np / (128*K)));
 
@@ -1069,7 +1091,7 @@ void CompileBroker::possibly_add_compiler_threads(JavaThread* THREAD) {
           break;
         }
         // Check if another thread has beaten us during the Java calls.
-        if (_compilers[1]->num_compiler_threads() != i) break;
+        if (get_c2_thread_count() != i) break;
         jobject thread_handle = JNIHandles::make_global(thread_oop);
         assert(compiler2_object(i) == nullptr, "Old one must be released!");
         _compiler2_objects[i] = thread_handle;
@@ -1091,9 +1113,9 @@ void CompileBroker::possibly_add_compiler_threads(JavaThread* THREAD) {
   }
 
   if (_c1_compile_queue != nullptr) {
-    int old_c1_count = _compilers[0]->num_compiler_threads();
-    int new_c1_count = MIN4(_c1_count,
-        _c1_compile_queue->size() / 4,
+    old_c1_count = get_c1_thread_count();
+    new_c1_count = MIN4(_c1_count,
+        _c1_compile_queue->size() / c1_tasks_per_thread,
         (int)(free_memory / (100*M)),
         (int)(available_cc_p / (128*K)));
 
@@ -1785,17 +1807,22 @@ bool CompileBroker::init_compiler_runtime() {
   return true;
 }
 
+void CompileBroker::free_buffer_blob_if_allocated(CompilerThread* thread) {
+  BufferBlob* blob = thread->get_buffer_blob();
+  if (blob != nullptr) {
+    blob->purge(true /* free_code_cache_data */, true /* unregister_nmethod */);
+    MutexLocker mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
+    CodeCache::free(blob);
+  }
+}
+
 /**
  * If C1 and/or C2 initialization failed, we shut down all compilation.
  * We do this to keep things simple. This can be changed if it ever turns
  * out to be a problem.
  */
 void CompileBroker::shutdown_compiler_runtime(AbstractCompiler* comp, CompilerThread* thread) {
-  // Free buffer blob, if allocated
-  if (thread->get_buffer_blob() != nullptr) {
-    MutexLocker mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
-    CodeCache::free(thread->get_buffer_blob());
-  }
+  free_buffer_blob_if_allocated(thread);
 
   if (comp->should_perform_shutdown()) {
     // There are two reasons for shutting down the compiler
@@ -1934,11 +1961,7 @@ void CompileBroker::compiler_thread_loop() {
           // Notify compiler that the compiler thread is about to stop
           thread->compiler()->stopping_compiler_thread(thread);
 
-          // Free buffer blob, if allocated
-          if (thread->get_buffer_blob() != nullptr) {
-            MutexLocker mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
-            CodeCache::free(thread->get_buffer_blob());
-          }
+          free_buffer_blob_if_allocated(thread);
           return; // Stop this thread.
         }
       }
@@ -2301,7 +2324,9 @@ void CompileBroker::invoke_compiler_on_method(CompileTask* task) {
     compilable = ci_env.compilable();
 
     if (ci_env.failing()) {
-      failure_reason = ci_env.failure_reason();
+      // Duplicate the failure reason string, so that it outlives ciEnv
+      failure_reason = os::strdup(ci_env.failure_reason(), mtCompiler);
+      failure_reason_on_C_heap = true;
       retry_message = ci_env.retry_message();
       ci_env.report_failure(failure_reason);
     }

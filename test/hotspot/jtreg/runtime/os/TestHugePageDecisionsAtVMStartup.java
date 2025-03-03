@@ -125,7 +125,8 @@ public class TestHugePageDecisionsAtVMStartup {
             out.shouldContain("[info][pagesize] UseLargePages=1, UseTransparentHugePages=0");
             out.shouldContain("[info][pagesize] Large page support enabled");
         } else if (useLP && useTHP && configuration.supportsTHP()) {
-            String thpPageSizeString = buildSizeString(configuration.getThpPageSize());
+            long thpPageSize = configuration.getThpPageSizeOrFallback();
+            String thpPageSizeString = buildSizeString(thpPageSize);
             // We expect to see exactly two "Usable page sizes" :  the system page size and the THP page size. The system
             // page size differs, but its always in KB).
             out.shouldContain("[info][pagesize] UseLargePages=1, UseTransparentHugePages=1");
@@ -146,7 +147,7 @@ public class TestHugePageDecisionsAtVMStartup {
         boolean useTHP = allOptions.contains("-XX:+UseTransparentHugePages");
         System.out.println("useLP: " + useLP + " useTHP: " + useTHP);
 
-        ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(allOptions.toArray(new String[0]));
+        ProcessBuilder pb = ProcessTools.createLimitedTestJavaProcessBuilder(allOptions.toArray(new String[0]));
         OutputAnalyzer output = new OutputAnalyzer(pb.start());
         output.reportDiagnosticSummary();
         HugePageConfiguration configuration = HugePageConfiguration.readFromOS();

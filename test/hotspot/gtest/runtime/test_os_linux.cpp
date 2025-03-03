@@ -427,13 +427,47 @@ TEST_VM(os_linux, reserve_memory_special_concurrent) {
   }
 }
 
+TEST_VM(os_linux, pretouch_thp_and_use_concurrent) {
+  // Explicitly enable thp to test cocurrent system calls.
+  const size_t size = 1 * G;
+  const bool useThp = UseTransparentHugePages;
+  UseTransparentHugePages = true;
+  char* const heap = os::reserve_memory(size, false, mtInternal);
+  EXPECT_NE(heap, nullptr);
+  EXPECT_TRUE(os::commit_memory(heap, size, false));
+
+  {
+    auto pretouch = [heap](Thread*, int) {
+      os::pretouch_memory(heap, heap + size, os::vm_page_size());
+    };
+    auto useMemory = [heap](Thread*, int) {
+      int* iptr = reinterpret_cast<int*>(heap);
+      for (int i = 0; i < 1000; i++) *iptr++ = i;
+    };
+    TestThreadGroup<decltype(pretouch)> pretouchThreads{pretouch, 4};
+    TestThreadGroup<decltype(useMemory)> useMemoryThreads{useMemory, 4};
+    useMemoryThreads.doit();
+    pretouchThreads.doit();
+    useMemoryThreads.join();
+    pretouchThreads.join();
+  }
+
+  int* iptr = reinterpret_cast<int*>(heap);
+  for (int i = 0; i < 1000; i++)
+    EXPECT_EQ(*iptr++, i);
+
+  EXPECT_TRUE(os::uncommit_memory(heap, size, false));
+  EXPECT_TRUE(os::release_memory(heap, size));
+  UseTransparentHugePages = useThp;
+}
+
 // Check that method JNI_CreateJavaVM is found.
 TEST(os_linux, addr_to_function_valid) {
   char buf[128] = "";
   int offset = -1;
   address valid_function_pointer = (address)JNI_CreateJavaVM;
   ASSERT_TRUE(os::dll_address_to_function_name(valid_function_pointer, buf, sizeof(buf), &offset, true));
-  ASSERT_TRUE(strstr(buf, "JNI_CreateJavaVM") != nullptr);
+  ASSERT_THAT(buf, testing::HasSubstr("JNI_CreateJavaVM"));
   ASSERT_TRUE(offset >= 0);
 }
 
@@ -444,7 +478,7 @@ TEST_VM(os_linux, decoder_get_source_info_valid) {
   int line = -1;
   address valid_function_pointer = (address)ReportJNIFatalError;
   ASSERT_TRUE(Decoder::get_source_info(valid_function_pointer, buf, sizeof(buf), &line));
-  ASSERT_TRUE(strcmp(buf, "jniCheck.hpp") == 0);
+  EXPECT_STREQ(buf, "jniCheck.hpp");
   ASSERT_TRUE(line > 0);
 }
 
@@ -471,7 +505,7 @@ TEST_VM(os_linux, decoder_get_source_info_valid_overflow) {
   int line = -1;
   address valid_function_pointer = (address)ReportJNIFatalError;
   ASSERT_TRUE(Decoder::get_source_info(valid_function_pointer, buf, 11, &line));
-  ASSERT_TRUE(strcmp(buf, "<OVERFLOW>") == 0);
+  EXPECT_STREQ(buf, "<OVERFLOW>");
   ASSERT_TRUE(line > 0);
 }
 
@@ -482,7 +516,7 @@ TEST_VM(os_linux, decoder_get_source_info_valid_overflow_minimal) {
   int line = -1;
   address valid_function_pointer = (address)ReportJNIFatalError;
   ASSERT_TRUE(Decoder::get_source_info(valid_function_pointer, buf, 2, &line));
-  ASSERT_TRUE(strcmp(buf, "L") == 0); // Overflow message does not fit, so we fall back to "L:line_number"
+  EXPECT_STREQ(buf, "L"); // Overflow message does not fit, so we fall back to "L:line_number"
   ASSERT_TRUE(line > 0); // Line should correctly be found and returned
 }
 #endif // clang

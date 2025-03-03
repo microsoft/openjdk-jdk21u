@@ -205,6 +205,7 @@ public:
   void verify_nmethod(nmethod* nm) override;
 
   void prune_scavengable_nmethods();
+  void prune_unlinked_nmethods();
 
   // Iteration functions.
   void oop_iterate(OopIterateClosure* cl);
@@ -269,7 +270,7 @@ public:
     _old_gen->update_gc_stats(current_generation, full);
   }
 
-  bool no_gc_in_progress() { return !is_gc_active(); }
+  bool no_gc_in_progress() { return !is_stw_gc_active(); }
 
   void prepare_for_verify() override;
   void verify(VerifyOption option) override;

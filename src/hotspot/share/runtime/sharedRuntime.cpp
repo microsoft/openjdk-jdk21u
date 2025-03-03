@@ -1437,7 +1437,7 @@ methodHandle SharedRuntime::resolve_sub_helper(bool is_virtual, bool is_optimize
 
   if (invoke_code == Bytecodes::_invokestatic) {
     assert(callee_method->method_holder()->is_initialized() ||
-           callee_method->method_holder()->is_init_thread(current),
+           callee_method->method_holder()->is_reentrant_initialization(current),
            "invalid class initialization state for invoke_static");
     if (!VM_Version::supports_fast_class_init_checks() && callee_method->needs_clinit_barrier()) {
       // In order to keep class initialization check, do not patch call
@@ -1991,12 +1991,12 @@ void SharedRuntime::check_member_name_argument_is_last_argument(const methodHand
   assert(member_arg_pos >= 0 && member_arg_pos < total_args_passed, "oob");
   assert(sig_bt[member_arg_pos] == T_OBJECT, "dispatch argument must be an object");
 
-  int comp_args_on_stack = java_calling_convention(sig_bt, regs_without_member_name, total_args_passed - 1);
+  java_calling_convention(sig_bt, regs_without_member_name, total_args_passed - 1);
 
   for (int i = 0; i < member_arg_pos; i++) {
     VMReg a =    regs_with_member_name[i].first();
     VMReg b = regs_without_member_name[i].first();
-    assert(a->value() == b->value(), "register allocation mismatch: a=" INTX_FORMAT ", b=" INTX_FORMAT, a->value(), b->value());
+    assert(a->value() == b->value(), "register allocation mismatch: a= %d, b= %d", a->value(), b->value());
   }
   assert(regs_with_member_name[member_arg_pos].first()->is_valid(), "bad member arg");
 }
@@ -3089,7 +3089,7 @@ void AdapterHandlerLibrary::create_native_wrapper(const methodHandle& method) {
       BasicType ret_type = si.return_type();
 
       // Now get the compiled-Java arguments layout.
-      int comp_args_on_stack = SharedRuntime::java_calling_convention(sig_bt, regs, total_args_passed);
+      SharedRuntime::java_calling_convention(sig_bt, regs, total_args_passed);
 
       // Generate the compiled-to-native wrapper code
       nm = SharedRuntime::generate_native_wrapper(&_masm, method, compile_id, sig_bt, regs, ret_type);

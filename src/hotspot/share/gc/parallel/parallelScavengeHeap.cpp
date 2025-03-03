@@ -455,7 +455,7 @@ void ParallelScavengeHeap::do_full_collection(bool clear_all_soft_refs) {
 HeapWord* ParallelScavengeHeap::failed_mem_allocate(size_t size) {
   assert(SafepointSynchronize::is_at_safepoint(), "should be at safepoint");
   assert(Thread::current() == (Thread*)VMThread::vm_thread(), "should be in vm thread");
-  assert(!is_gc_active(), "not reentrant");
+  assert(!is_stw_gc_active(), "not reentrant");
   assert(!Heap_lock->owned_by_self(), "this thread should not own the Heap_lock");
 
   // We assume that allocation in eden will fail unless we collect.
@@ -525,6 +525,14 @@ HeapWord* ParallelScavengeHeap::allocate_new_tlab(size_t min_size, size_t reques
 
 void ParallelScavengeHeap::resize_all_tlabs() {
   CollectedHeap::resize_all_tlabs();
+}
+
+void ParallelScavengeHeap::prune_scavengable_nmethods() {
+  ScavengableNMethods::prune_nmethods_not_into_young();
+}
+
+void ParallelScavengeHeap::prune_unlinked_nmethods() {
+  ScavengableNMethods::prune_unlinked_nmethods();
 }
 
 // This method is used by System.gc() and JVMTI.
@@ -856,10 +864,6 @@ void ParallelScavengeHeap::unregister_nmethod(nmethod* nm) {
 
 void ParallelScavengeHeap::verify_nmethod(nmethod* nm) {
   ScavengableNMethods::verify_nmethod(nm);
-}
-
-void ParallelScavengeHeap::prune_scavengable_nmethods() {
-  ScavengableNMethods::prune_nmethods();
 }
 
 GrowableArray<GCMemoryManager*> ParallelScavengeHeap::memory_managers() {

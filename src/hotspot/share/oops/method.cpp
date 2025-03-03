@@ -308,16 +308,13 @@ int Method::fast_exception_handler_bci_for(const methodHandle& mh, Klass* ex_kla
 
 void Method::mask_for(int bci, InterpreterOopMap* mask) {
   methodHandle h_this(Thread::current(), this);
-  // Only GC uses the OopMapCache during thread stack root scanning
-  // any other uses generate an oopmap but do not save it in the cache.
-  if (Universe::heap()->is_gc_active()) {
-    method_holder()->mask_for(h_this, bci, mask);
-  } else {
-    OopMapCache::compute_one_oop_map(h_this, bci, mask);
-  }
-  return;
+  mask_for(h_this, bci, mask);
 }
 
+void Method::mask_for(const methodHandle& this_mh, int bci, InterpreterOopMap* mask) {
+  assert(this_mh() == this, "Sanity");
+  method_holder()->mask_for(this_mh, bci, mask);
+}
 
 int Method::bci_from(address bcp) const {
   if (is_native() && bcp == 0) {
@@ -2260,6 +2257,20 @@ void Method::record_gc_epoch() {
 // Called when the class loader is unloaded to make all methods weak.
 void Method::clear_jmethod_ids(ClassLoaderData* loader_data) {
   loader_data->jmethod_ids()->clear_all_methods();
+}
+
+void Method::clear_jmethod_id() {
+  // Being at a safepoint prevents racing against other class redefinitions
+  assert(SafepointSynchronize::is_at_safepoint(), "should be at safepoint");
+  // The jmethodID is not stored in the Method instance, we need to look it up first
+  jmethodID methodid = find_jmethod_id_or_null();
+  // We need to make sure that jmethodID actually resolves to this method
+  // - multiple redefined versions may share jmethodID slots and if a method
+  //   has already been rewired to a newer version we could be removing reference
+  //   to a still existing method instance
+  if (methodid != nullptr && *((Method**)methodid) == this) {
+    *((Method**)methodid) = nullptr;
+  }
 }
 
 bool Method::has_method_vptr(const void* ptr) {

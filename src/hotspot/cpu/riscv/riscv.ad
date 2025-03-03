@@ -84,8 +84,8 @@ reg_def R0      ( NS,  NS,  Op_RegI, 0,  x0->as_VMReg()         ); // zr
 reg_def R0_H    ( NS,  NS,  Op_RegI, 0,  x0->as_VMReg()->next() );
 reg_def R1      ( NS,  SOC, Op_RegI, 1,  x1->as_VMReg()         ); // ra
 reg_def R1_H    ( NS,  SOC, Op_RegI, 1,  x1->as_VMReg()->next() );
-reg_def R2      ( NS,  SOE, Op_RegI, 2,  x2->as_VMReg()         ); // sp
-reg_def R2_H    ( NS,  SOE, Op_RegI, 2,  x2->as_VMReg()->next() );
+reg_def R2      ( NS,  NS,  Op_RegI, 2,  x2->as_VMReg()         ); // sp
+reg_def R2_H    ( NS,  NS,  Op_RegI, 2,  x2->as_VMReg()->next() );
 reg_def R3      ( NS,  NS,  Op_RegI, 3,  x3->as_VMReg()         ); // gp
 reg_def R3_H    ( NS,  NS,  Op_RegI, 3,  x3->as_VMReg()->next() );
 reg_def R4      ( NS,  NS,  Op_RegI, 4,  x4->as_VMReg()         ); // tp
@@ -649,10 +649,12 @@ reg_class non_allocatable_reg(
     R23, R23_H                // java thread
 );
 
+// Class for all non-special integer registers
 reg_class no_special_reg32 %{
   return _NO_SPECIAL_REG32_mask;
 %}
 
+// Class for all non-special long integer registers
 reg_class no_special_reg %{
   return _NO_SPECIAL_REG_mask;
 %}
@@ -661,8 +663,14 @@ reg_class ptr_reg %{
   return _PTR_REG_mask;
 %}
 
+// Class for all non_special pointer registers
 reg_class no_special_ptr_reg %{
   return _NO_SPECIAL_PTR_REG_mask;
+%}
+
+// Class for all non_special pointer registers (excluding fp)
+reg_class no_special_no_fp_ptr_reg %{
+  return _NO_SPECIAL_NO_FP_PTR_REG_mask;
 %}
 
 // Class for 64 bit register r10
@@ -981,6 +989,7 @@ definitions %{
   int_def LOAD_COST            (  300,  3 * DEFAULT_COST);          // load, fpload
   int_def STORE_COST           (  100,  1 * DEFAULT_COST);          // store, fpstore
   int_def XFER_COST            (  300,  3 * DEFAULT_COST);          // mfc, mtc, fcvt, fmove, fcmp
+  int_def FMVX_COST            (  100,  1 * DEFAULT_COST);          // shuffles with no conversion
   int_def BRANCH_COST          (  200,  2 * DEFAULT_COST);          // branch, jmp, call
   int_def IMUL_COST            ( 1000, 10 * DEFAULT_COST);          // imul
   int_def IDIVSI_COST          ( 3400, 34 * DEFAULT_COST);          // idivdi
@@ -1016,6 +1025,7 @@ extern RegMask _PTR_REG_mask;
 extern RegMask _NO_SPECIAL_REG32_mask;
 extern RegMask _NO_SPECIAL_REG_mask;
 extern RegMask _NO_SPECIAL_PTR_REG_mask;
+extern RegMask _NO_SPECIAL_NO_FP_PTR_REG_mask;
 
 class CallStubImpl {
 
@@ -1078,6 +1088,7 @@ RegMask _PTR_REG_mask;
 RegMask _NO_SPECIAL_REG32_mask;
 RegMask _NO_SPECIAL_REG_mask;
 RegMask _NO_SPECIAL_PTR_REG_mask;
+RegMask _NO_SPECIAL_NO_FP_PTR_REG_mask;
 
 void reg_mask_init() {
 
@@ -1112,6 +1123,9 @@ void reg_mask_init() {
     _NO_SPECIAL_REG_mask.Remove(OptoReg::as_OptoReg(x8->as_VMReg()));
     _NO_SPECIAL_PTR_REG_mask.Remove(OptoReg::as_OptoReg(x8->as_VMReg()));
   }
+
+  _NO_SPECIAL_NO_FP_PTR_REG_mask = _NO_SPECIAL_PTR_REG_mask;
+  _NO_SPECIAL_NO_FP_PTR_REG_mask.Remove(OptoReg::as_OptoReg(x8->as_VMReg()));
 }
 
 void PhaseOutput::pd_perform_mach_node_analysis() {
@@ -2352,6 +2366,11 @@ encode %{
         ciEnv::current()->record_failure("CodeCache is full");
         return;
       }
+    } else if (_method->intrinsic_id() == vmIntrinsicID::_ensureMaterializedForStackWalk) {
+      // The NOP here is purely to ensure that eliding a call to
+      // JVM_EnsureMaterializedForStackWalk doesn't change the code size.
+      __ nop();
+      __ block_comment("call JVM_EnsureMaterializedForStackWalk (elided)");
     } else {
       int method_index = resolved_method_index(cbuf);
       RelocationHolder rspec = _optimized_virtual ? opt_virtual_call_Relocation::spec(method_index)
@@ -3178,6 +3197,18 @@ operand iRegPNoSp()
 %{
   constraint(ALLOC_IN_RC(no_special_ptr_reg));
   match(RegP);
+  op_cost(0);
+  format %{ %}
+  interface(REG_INTER);
+%}
+
+// This operand is not allowed to use fp even if
+// fp is not used to hold the frame pointer.
+operand iRegPNoSpNoFp()
+%{
+  constraint(ALLOC_IN_RC(no_special_no_fp_ptr_reg));
+  match(RegP);
+  match(iRegPNoSp);
   op_cost(0);
   format %{ %}
   interface(REG_INTER);
@@ -8221,6 +8252,34 @@ instruct convN2I(iRegINoSp dst, iRegN src)
   ins_pipe(ialu_reg);
 %}
 
+instruct round_double_reg(iRegLNoSp dst, fRegD src, fRegD ftmp) %{
+  match(Set dst (RoundD src));
+
+  ins_cost(XFER_COST + BRANCH_COST);
+  effect(TEMP ftmp);
+  format %{ "java_round_double $dst, $src\t#@round_double_reg" %}
+
+  ins_encode %{
+    __ java_round_double($dst$$Register, as_FloatRegister($src$$reg), as_FloatRegister($ftmp$$reg));
+  %}
+
+  ins_pipe(pipe_slow);
+%}
+
+instruct round_float_reg(iRegINoSp dst, fRegF src, fRegF ftmp) %{
+  match(Set dst (RoundF src));
+
+  ins_cost(XFER_COST + BRANCH_COST);
+  effect(TEMP ftmp);
+  format %{ "java_round_float $dst, $src\t#@round_float_reg" %}
+
+  ins_encode %{
+    __ java_round_float($dst$$Register, as_FloatRegister($src$$reg), as_FloatRegister($ftmp$$reg));
+  %}
+
+  ins_pipe(pipe_slow);
+%}
+
 // Convert oop pointer into compressed form
 instruct encodeHeapOop(iRegNNoSp dst, iRegP src) %{
   match(Set dst (EncodeP src));
@@ -8450,7 +8509,7 @@ instruct MoveF2I_reg_reg(iRegINoSp dst, fRegF src) %{
 
   effect(DEF dst, USE src);
 
-  ins_cost(XFER_COST);
+  ins_cost(FMVX_COST);
 
   format %{ "fmv.x.w  $dst, $src\t#@MoveL2D_reg_stack" %}
 
@@ -8468,7 +8527,7 @@ instruct MoveI2F_reg_reg(fRegF dst, iRegI src) %{
 
   effect(DEF dst, USE src);
 
-  ins_cost(XFER_COST);
+  ins_cost(FMVX_COST);
 
   format %{ "fmv.w.x  $dst, $src\t#@MoveI2F_reg_reg" %}
 
@@ -8486,7 +8545,7 @@ instruct MoveD2L_reg_reg(iRegLNoSp dst, fRegD src) %{
 
   effect(DEF dst, USE src);
 
-  ins_cost(XFER_COST);
+  ins_cost(FMVX_COST);
 
   format %{ "fmv.x.d $dst, $src\t#@MoveD2L_reg_reg" %}
 
@@ -8504,7 +8563,7 @@ instruct MoveL2D_reg_reg(fRegD dst, iRegL src) %{
 
   effect(DEF dst, USE src);
 
-  ins_cost(XFER_COST);
+  ins_cost(FMVX_COST);
 
   format %{ "fmv.d.x  $dst, $src\t#@MoveD2L_reg_reg" %}
 
@@ -10207,7 +10266,9 @@ instruct cmpFastUnlock(rFlagsReg cr, iRegP object, iRegP box, iRegPNoSp tmp1, iR
 // Also known as an 'interprocedural jump'.
 // Target of jump will eventually return to caller.
 // TailJump below removes the return address.
-instruct TailCalljmpInd(iRegPNoSp jump_target, inline_cache_RegP method_oop)
+// Don't use fp for 'jump_target' because a MachEpilogNode has already been
+// emitted just above the TailCall which has reset fp to the caller state.
+instruct TailCalljmpInd(iRegPNoSpNoFp jump_target, inline_cache_RegP method_oop)
 %{
   match(TailCall jump_target method_oop);
 
@@ -10220,7 +10281,7 @@ instruct TailCalljmpInd(iRegPNoSp jump_target, inline_cache_RegP method_oop)
   ins_pipe(pipe_class_call);
 %}
 
-instruct TailjmpInd(iRegPNoSp jump_target, iRegP_R10 ex_oop)
+instruct TailjmpInd(iRegPNoSpNoFp jump_target, iRegP_R10 ex_oop)
 %{
   match(TailJump jump_target ex_oop);
 

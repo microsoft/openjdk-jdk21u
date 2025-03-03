@@ -50,21 +50,18 @@ bool ShenandoahBarrierC2Support::expand(Compile* C, PhaseIterGVN& igvn) {
        state->load_reference_barriers_count()) > 0) {
     assert(C->post_loop_opts_phase(), "no loop opts allowed");
     C->reset_post_loop_opts_phase(); // ... but we know what we are doing
-    bool attempt_more_loopopts = ShenandoahLoopOptsAfterExpansion;
     C->clear_major_progress();
     PhaseIdealLoop::optimize(igvn, LoopOptsShenandoahExpand);
     if (C->failing()) return false;
-    PhaseIdealLoop::verify(igvn);
-    if (attempt_more_loopopts) {
-      C->set_major_progress();
-      if (!C->optimize_loops(igvn, LoopOptsShenandoahPostExpand)) {
-        return false;
-      }
-      C->clear_major_progress();
 
-      C->process_for_post_loop_opts_igvn(igvn);
-      if (C->failing()) return false;
+    C->set_major_progress();
+    if (!C->optimize_loops(igvn, LoopOptsShenandoahPostExpand)) {
+      return false;
     }
+    C->clear_major_progress();
+    C->process_for_post_loop_opts_igvn(igvn);
+    if (C->failing()) return false;
+
     C->set_post_loop_opts_phase(); // now for real!
   }
   return true;
@@ -1051,6 +1048,7 @@ void ShenandoahBarrierC2Support::fix_ctrl(Node* barrier, Node* region, const Mem
     Node* u = ctrl->fast_out(i);
     if (u->_idx < last &&
         u != barrier &&
+        !u->depends_only_on_test() && // preserve dependency on test
         !uses_to_ignore.member(u) &&
         (u->in(0) != ctrl || (!u->is_Region() && !u->is_Phi())) &&
         (ctrl->Opcode() != Op_CatchProj || u->Opcode() != Op_CreateEx)) {
@@ -1386,11 +1384,9 @@ void ShenandoahBarrierC2Support::pin_and_expand(PhaseIdealLoop* phase) {
     Node* result_mem = nullptr;
 
     Node* addr;
-    if (ShenandoahSelfFixing) {
+    {
       VectorSet visited;
       addr = get_load_addr(phase, visited, lrb);
-    } else {
-      addr = phase->igvn().zerocon(T_OBJECT);
     }
     if (addr->Opcode() == Op_AddP) {
       Node* orig_base = addr->in(AddPNode::Base);
@@ -1733,11 +1729,26 @@ bool ShenandoahBarrierC2Support::identical_backtoback_ifs(Node* n, PhaseIdealLoo
   return true;
 }
 
+bool ShenandoahBarrierC2Support::merge_point_safe(Node* region) {
+  for (DUIterator_Fast imax, i = region->fast_outs(imax); i < imax; i++) {
+    Node* n = region->fast_out(i);
+    if (n->is_LoadStore()) {
+      // Splitting a LoadStore node through phi, causes it to lose its SCMemProj: the split if code doesn't have support
+      // for a LoadStore at the region the if is split through because that's not expected to happen (LoadStore nodes
+      // should be between barrier nodes). It does however happen with Shenandoah though because barriers can get
+      // expanded around a LoadStore node.
+      return false;
+    }
+  }
+  return true;
+}
+
+
 void ShenandoahBarrierC2Support::merge_back_to_back_tests(Node* n, PhaseIdealLoop* phase) {
   assert(is_heap_stable_test(n), "no other tests");
   if (identical_backtoback_ifs(n, phase)) {
     Node* n_ctrl = n->in(0);
-    if (phase->can_split_if(n_ctrl)) {
+    if (phase->can_split_if(n_ctrl) && merge_point_safe(n_ctrl)) {
       IfNode* dom_if = phase->idom(n_ctrl)->as_If();
       if (is_heap_stable_test(n)) {
         Node* gc_state_load = n->in(1)->in(1)->in(1)->in(1);

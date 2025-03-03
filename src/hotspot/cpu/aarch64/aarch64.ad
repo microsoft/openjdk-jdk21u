@@ -694,6 +694,11 @@ reg_class no_special_ptr_reg %{
   return _NO_SPECIAL_PTR_REG_mask;
 %}
 
+// Class for all non_special pointer registers (excluding rfp)
+reg_class no_special_no_rfp_ptr_reg %{
+  return _NO_SPECIAL_NO_RFP_PTR_REG_mask;
+%}
+
 // Class for all float registers
 reg_class float_reg(
     V0,
@@ -1125,6 +1130,7 @@ extern RegMask _PTR_REG_mask;
 extern RegMask _NO_SPECIAL_REG32_mask;
 extern RegMask _NO_SPECIAL_REG_mask;
 extern RegMask _NO_SPECIAL_PTR_REG_mask;
+extern RegMask _NO_SPECIAL_NO_RFP_PTR_REG_mask;
 
 class CallStubImpl {
 
@@ -1213,6 +1219,7 @@ source %{
   RegMask _NO_SPECIAL_REG32_mask;
   RegMask _NO_SPECIAL_REG_mask;
   RegMask _NO_SPECIAL_PTR_REG_mask;
+  RegMask _NO_SPECIAL_NO_RFP_PTR_REG_mask;
 
   void reg_mask_init() {
     // We derive below RegMask(s) from the ones which are auto-generated from
@@ -1249,6 +1256,9 @@ source %{
       _NO_SPECIAL_REG_mask.Remove(OptoReg::as_OptoReg(r29->as_VMReg()));
       _NO_SPECIAL_PTR_REG_mask.Remove(OptoReg::as_OptoReg(r29->as_VMReg()));
     }
+
+    _NO_SPECIAL_NO_RFP_PTR_REG_mask = _NO_SPECIAL_PTR_REG_mask;
+    _NO_SPECIAL_NO_RFP_PTR_REG_mask.Remove(OptoReg::as_OptoReg(r29->as_VMReg()));
   }
 
   // Optimizaton of volatile gets and puts
@@ -1721,8 +1731,8 @@ void MachPrologNode::format(PhaseRegAlloc *ra_, outputStream *st) const {
     st->print("# stack bang size=%d\n\t", framesize);
 
   if (VM_Version::use_rop_protection()) {
-    st->print("ldr zr, [lr]\n\t");
-    st->print("pacia  lr, rfp\n\t");
+    st->print("ldr  zr, [lr]\n\t");
+    st->print("paciaz\n\t");
   }
   if (framesize < ((1 << 9) + 2 * wordSize)) {
     st->print("sub  sp, sp, #%d\n\t", framesize);
@@ -1851,8 +1861,8 @@ void MachEpilogNode::format(PhaseRegAlloc *ra_, outputStream *st) const {
     st->print("ldp  lr, rfp, [sp],#%d\n\t", (2 * wordSize));
   }
   if (VM_Version::use_rop_protection()) {
-    st->print("autia lr, rfp\n\t");
-    st->print("ldr zr, [lr]\n\t");
+    st->print("autiaz\n\t");
+    st->print("ldr  zr, [lr]\n\t");
   }
 
   if (do_polling() && C->is_method_compilation()) {
@@ -4880,6 +4890,18 @@ operand iRegPNoSp()
   // match(iRegP_R4);
   // match(iRegP_R5);
   // match(thread_RegP);
+  op_cost(0);
+  format %{ %}
+  interface(REG_INTER);
+%}
+
+// This operand is not allowed to use rfp even if
+// rfp is not used to hold the frame pointer.
+operand iRegPNoSpNoRfp()
+%{
+  constraint(ALLOC_IN_RC(no_special_no_rfp_ptr_reg));
+  match(RegP);
+  match(iRegPNoSp);
   op_cost(0);
   format %{ %}
   interface(REG_INTER);
@@ -16562,7 +16584,9 @@ instruct CallLeafNoFPDirect(method meth)
 // Also known as an 'interprocedural jump'.
 // Target of jump will eventually return to caller.
 // TailJump below removes the return address.
-instruct TailCalljmpInd(iRegPNoSp jump_target, inline_cache_RegP method_ptr)
+// Don't use rfp for 'jump_target' because a MachEpilogNode has already been
+// emitted just above the TailCall which has reset rfp to the caller state.
+instruct TailCalljmpInd(iRegPNoSpNoRfp jump_target, inline_cache_RegP method_ptr)
 %{
   match(TailCall jump_target method_ptr);
 
@@ -16575,7 +16599,7 @@ instruct TailCalljmpInd(iRegPNoSp jump_target, inline_cache_RegP method_ptr)
   ins_pipe(pipe_class_call);
 %}
 
-instruct TailjmpInd(iRegPNoSp jump_target, iRegP_R0 ex_oop)
+instruct TailjmpInd(iRegPNoSpNoRfp jump_target, iRegP_R0 ex_oop)
 %{
   match(TailJump jump_target ex_oop);
 
@@ -17143,6 +17167,32 @@ instruct array_equalsC(iRegP_R1 ary1, iRegP_R2 ary2, iRegI_R0 result,
                                    $tmp1$$Register, $tmp2$$Register, $tmp3$$Register,
                                    $result$$Register, $tmp$$Register, 2);
     if (tpc == NULL) {
+      ciEnv::current()->record_failure("CodeCache is full");
+      return;
+    }
+  %}
+  ins_pipe(pipe_class_memory);
+%}
+
+instruct arrays_hashcode(iRegP_R1 ary, iRegI_R2 cnt, iRegI_R0 result, immI basic_type,
+                         vRegD_V0 vtmp0, vRegD_V1 vtmp1, vRegD_V2 vtmp2, vRegD_V3 vtmp3,
+                         vRegD_V4 vtmp4, vRegD_V5 vtmp5, vRegD_V6 vtmp6, vRegD_V7 vtmp7,
+                         vRegD_V12 vtmp8, vRegD_V13 vtmp9, rFlagsReg cr)
+%{
+  match(Set result (VectorizedHashCode (Binary ary cnt) (Binary result basic_type)));
+  effect(TEMP vtmp0, TEMP vtmp1, TEMP vtmp2, TEMP vtmp3, TEMP vtmp4, TEMP vtmp5, TEMP vtmp6,
+         TEMP vtmp7, TEMP vtmp8, TEMP vtmp9, USE_KILL ary, USE_KILL cnt, USE basic_type, KILL cr);
+
+  format %{ "Array HashCode array[] $ary,$cnt,$result,$basic_type -> $result   // KILL all" %}
+  ins_encode %{
+    address tpc = __ arrays_hashcode($ary$$Register, $cnt$$Register, $result$$Register,
+                                     $vtmp3$$FloatRegister, $vtmp2$$FloatRegister,
+                                     $vtmp1$$FloatRegister, $vtmp0$$FloatRegister,
+                                     $vtmp4$$FloatRegister, $vtmp5$$FloatRegister,
+                                     $vtmp6$$FloatRegister, $vtmp7$$FloatRegister,
+                                     $vtmp8$$FloatRegister, $vtmp9$$FloatRegister,
+                                     (BasicType)$basic_type$$constant);
+    if (tpc == nullptr) {
       ciEnv::current()->record_failure("CodeCache is full");
       return;
     }

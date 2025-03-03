@@ -117,13 +117,13 @@ class MacroAssembler: public Assembler {
     if (op == 0xEB || (op & 0xF0) == 0x70) {
       // short offset operators (jmp and jcc)
       char* disp = (char*) &branch[1];
-      int imm8 = target - (address) &disp[1];
+      int imm8 = checked_cast<int>(target - (address) &disp[1]);
       guarantee(this->is8bit(imm8), "Short forward jump exceeds 8-bit offset at %s:%d",
                 file == nullptr ? "<null>" : file, line);
-      *disp = imm8;
+      *disp = (char)imm8;
     } else {
       int* disp = (int*) &branch[(op == 0x0F || op == 0xC7)? 2: 1];
-      int imm32 = target - (address) &disp[1];
+      int imm32 = checked_cast<int>(target - (address) &disp[1]);
       *disp = imm32;
     }
   }
@@ -212,8 +212,8 @@ class MacroAssembler: public Assembler {
   // Alignment
   void align32();
   void align64();
-  void align(int modulus);
-  void align(int modulus, int target);
+  void align(uint modulus);
+  void align(uint modulus, uint target);
 
   void post_call_nop();
   // A 5 byte nop that is safe for patching (see patch_verified_entry)
@@ -749,7 +749,7 @@ public:
   void addptr(Register dst, int32_t src);
   void addptr(Register dst, Register src);
   void addptr(Register dst, RegisterOrConstant src) {
-    if (src.is_constant()) addptr(dst, src.as_constant());
+    if (src.is_constant()) addptr(dst, checked_cast<int>(src.as_constant()));
     else                   addptr(dst, src.as_register());
   }
 
@@ -798,23 +798,6 @@ public:
   void cmp64(Register src1, AddressLiteral src, Register rscratch = noreg);
 
   void cmpxchgptr(Register reg, Address adr);
-
-
-  // cvt instructions
-  void cvtss2sd(XMMRegister dst, XMMRegister src);
-  void cvtss2sd(XMMRegister dst, Address src);
-  void cvtsd2ss(XMMRegister dst, XMMRegister src);
-  void cvtsd2ss(XMMRegister dst, Address src);
-  void cvtsi2sdl(XMMRegister dst, Register src);
-  void cvtsi2sdl(XMMRegister dst, Address src);
-  void cvtsi2ssl(XMMRegister dst, Register src);
-  void cvtsi2ssl(XMMRegister dst, Address src);
-#ifdef _LP64
-  void cvtsi2sdq(XMMRegister dst, Register src);
-  void cvtsi2sdq(XMMRegister dst, Address src);
-  void cvtsi2ssq(XMMRegister dst, Register src);
-  void cvtsi2ssq(XMMRegister dst, Address src);
-#endif
 
   void locked_cmpxchgptr(Register reg, AddressLiteral adr, Register rscratch = noreg);
 
@@ -893,6 +876,7 @@ public:
 
   void testptr(Register src, int32_t imm32) {  LP64_ONLY(testq(src, imm32)) NOT_LP64(testl(src, imm32)); }
   void testptr(Register src1, Address src2) { LP64_ONLY(testq(src1, src2)) NOT_LP64(testl(src1, src2)); }
+  void testptr(Address src, int32_t imm32) {  LP64_ONLY(testq(src, imm32)) NOT_LP64(testl(src, imm32)); }
   void testptr(Register src1, Register src2);
 
   void xorptr(Register dst, Register src) { LP64_ONLY(xorq(dst, src)) NOT_LP64(xorl(dst, src)); }

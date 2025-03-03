@@ -100,12 +100,12 @@ public class TestIRMatching {
                  GoodFailOnRegexConstraint.create(MultipleFailOnBad.class, "fail10()", 1,  2, 3)
         );
 
-        runCheck(BadCountsConstraint.create(BadCount.class, "bad1()", 1, 1, "Load"),
+        runCheck(BadCountsConstraint.create(BadCount.class, "bad1()", 1, 2, "Load"),
                  GoodCountsConstraint.create(BadCount.class, "bad1()", 2),
                  GoodCountsConstraint.create(BadCount.class, "bad2()", 1),
-                 BadCountsConstraint.create(BadCount.class, "bad2()", 2,  1, "Store"),
-                 BadCountsConstraint.create(BadCount.class, "bad3()", 1,  1, "Load"),
-                 BadCountsConstraint.create(BadCount.class, "bad3()", 2,  1, "Store")
+                 BadCountsConstraint.create(BadCount.class, "bad2()", 2,  2, "Store"),
+                 BadCountsConstraint.create(BadCount.class, "bad3()", 1,  2, "Load"),
+                 BadCountsConstraint.create(BadCount.class, "bad3()", 2,  2, "Store")
         );
 
         runCheck(GoodRuleConstraint.create(Calls.class, "calls()", 1),
@@ -413,7 +413,7 @@ public class TestIRMatching {
 
 class AndOr1 {
     @Test
-    @Arguments(Argument.DEFAULT)
+    @Arguments(values = Argument.DEFAULT)
     @IR(applyIfAnd = {"UsePerfData", "true", "TLABRefillWasteFraction", "50", "UseTLAB", "true"}, failOn = {IRNode.CALL})
     public void test1(int i) {
         dontInline();
@@ -629,10 +629,6 @@ class CountComparisons {
                   IRNode.STORE, "<=1",
                   IRNode.STORE, " <= 1",
                   IRNode.STORE, "  <=  1",
-                  IRNode.STORE, "!= 0",
-                  IRNode.STORE, "!=0",
-                  IRNode.STORE, " != 0",
-                  IRNode.STORE, "  !=  0",
                   IRNode.STORE, "> 0",
                   IRNode.STORE, ">0",
                   IRNode.STORE, " > 0",
@@ -823,27 +819,32 @@ class GoodCount {
 
 class BadCount {
     int iFld;
+    int iFld2;
     int result;
+    int result2;
     @Test
-    @IR(counts = {IRNode.LOAD, "!= 1"}) // fail
+    @IR(counts = {IRNode.LOAD, "> 1000"}) // fail
     @IR(counts = {IRNode.STORE, "> 0"})
     public void bad1() {
         result = iFld;
+        result2 = iFld2;
     }
 
     @Test
-    @IR(counts = {IRNode.LOAD, "1"}) // fail
-    @IR(counts = {IRNode.STORE, "< 1"})
+    @IR(counts = {IRNode.LOAD, "2"}) // fail
+    @IR(counts = {IRNode.STORE, "< 2"})
     public void bad2() {
         result = iFld;
+        result2 = iFld2;
     }
 
 
     @Test
     @IR(counts = {IRNode.LOAD, "0"}) // fail
-    @IR(counts = {IRNode.STORE, " <= 0"}) // fail
+    @IR(counts = {IRNode.STORE, " <= 1"}) // fail
     public void bad3() {
         result = iFld;
+        result2 = iFld2;
     }
 }
 
@@ -1109,7 +1110,7 @@ class Traps {
     }
 
     @Test
-    @Arguments(Argument.TRUE)
+    @Arguments(values = Argument.TRUE)
     @IR(failOn = IRNode.TRAP) // fails
     @IR(failOn = IRNode.UNSTABLE_IF_TRAP) // fails
     @IR(failOn = {IRNode.PREDICATE_TRAP,

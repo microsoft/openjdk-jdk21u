@@ -25,6 +25,7 @@
 
 #include "precompiled.hpp"
 #include "pauth_aarch64.hpp"
+#include "register_aarch64.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/globals_extension.hpp"
 #include "runtime/java.hpp"
@@ -144,10 +145,18 @@ void VM_Version::initialize() {
     }
   }
 
-  // Ampere CPUs: Ampere-1 and Ampere-1A
-  if (_cpu == CPU_AMPERE && ((_model == CPU_MODEL_AMPERE_1) || (_model == CPU_MODEL_AMPERE_1A))) {
+  // Ampere CPUs
+  if (_cpu == CPU_AMPERE && ((_model == CPU_MODEL_AMPERE_1)  ||
+                             (_model == CPU_MODEL_AMPERE_1A) ||
+                             (_model == CPU_MODEL_AMPERE_1B))) {
     if (FLAG_IS_DEFAULT(UseSIMDForMemoryOps)) {
       FLAG_SET_DEFAULT(UseSIMDForMemoryOps, true);
+    }
+    if (FLAG_IS_DEFAULT(OnSpinWaitInst)) {
+      FLAG_SET_DEFAULT(OnSpinWaitInst, "isb");
+    }
+    if (FLAG_IS_DEFAULT(OnSpinWaitInstCount)) {
+      FLAG_SET_DEFAULT(OnSpinWaitInstCount, 2);
     }
   }
 
@@ -205,10 +214,9 @@ void VM_Version::initialize() {
     }
   }
 
-  // Neoverse N1, N2 and V1
-  if (_cpu == CPU_ARM && ((_model == 0xd0c || _model2 == 0xd0c)
-                          || (_model == 0xd49 || _model2 == 0xd49)
-                          || (_model == 0xd40 || _model2 == 0xd40))) {
+  // Neoverse N1, N2, V1, V2
+  if (_cpu == CPU_ARM && (model_is(0xd0c) || model_is(0xd49) ||
+                          model_is(0xd40) || model_is(0xd4f))) {
     if (FLAG_IS_DEFAULT(UseSIMDForMemoryOps)) {
       FLAG_SET_DEFAULT(UseSIMDForMemoryOps, true);
     }
@@ -433,7 +441,19 @@ void VM_Version::initialize() {
   }
 
   if (UseSVE > 0) {
-    _initial_sve_vector_length = get_current_sve_vector_length();
+    int vl = get_current_sve_vector_length();
+    if (vl < 0) {
+      warning("Unable to get SVE vector length on this system. "
+              "Disabling SVE. Specify -XX:UseSVE=0 to shun this warning.");
+      FLAG_SET_DEFAULT(UseSVE, 0);
+    } else if ((vl == 0) || ((vl % FloatRegister::sve_vl_min) != 0) || !is_power_of_2(vl)) {
+      warning("Detected SVE vector length (%d) should be a power of two and a multiple of %d. "
+              "Disabling SVE. Specify -XX:UseSVE=0 to shun this warning.",
+              vl, FloatRegister::sve_vl_min);
+      FLAG_SET_DEFAULT(UseSVE, 0);
+    } else {
+      _initial_sve_vector_length = vl;
+    }
   }
 
   // This machine allows unaligned memory accesses
@@ -456,16 +476,12 @@ void VM_Version::initialize() {
              strcmp(UseBranchProtection, "pac-ret") == 0) {
     _rop_protection = false;
     // Enable ROP-protection if
-    // 1) this code has been built with branch-protection,
-    // 2) the CPU/OS supports it, and
-    // 3) incompatible VMContinuations isn't enabled.
+    // 1) this code has been built with branch-protection and
+    // 2) the CPU/OS supports it
 #ifdef __ARM_FEATURE_PAC_DEFAULT
     if (!VM_Version::supports_paca()) {
       // Disable PAC to prevent illegal instruction crashes.
       warning("ROP-protection specified, but not supported on this CPU. Disabling ROP-protection.");
-    } else if (VMContinuations) {
-      // Not currently compatible with continuation freeze/thaw.
-      warning("ROP-protection is incompatible with VMContinuations. Disabling ROP-protection.");
     } else {
       _rop_protection = true;
     }
@@ -480,12 +496,6 @@ void VM_Version::initialize() {
     // Determine the mask of address bits used for PAC. Clear bit 55 of
     // the input to make it look like a user address.
     _pac_mask = (uintptr_t)pauth_strip_pointer((address)~(UINT64_C(1) << 55));
-
-    // The frame pointer must be preserved for ROP protection.
-    if (FLAG_IS_DEFAULT(PreserveFramePointer) == false && PreserveFramePointer == false ) {
-      vm_exit_during_initialization(err_msg("PreserveFramePointer cannot be disabled for ROP-protection"));
-    }
-    PreserveFramePointer = true;
   }
 
 #ifdef COMPILER2
@@ -568,6 +578,10 @@ void VM_Version::initialize() {
 
   if (FLAG_IS_DEFAULT(UsePoly1305Intrinsics)) {
     FLAG_SET_DEFAULT(UsePoly1305Intrinsics, true);
+  }
+
+  if (FLAG_IS_DEFAULT(UseVectorizedHashCodeIntrinsic)) {
+    FLAG_SET_DEFAULT(UseVectorizedHashCodeIntrinsic, true);
   }
 #endif
 
