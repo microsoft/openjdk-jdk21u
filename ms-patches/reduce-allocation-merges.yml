@@ -1,0 +1,22 @@
+title: Reduce Allocation Merges
+- work_item: 1612900 
+- jbs_bug: JDK-8287061
+- author: JohnTortugo, dhanalla
+- owner: JohnTortugo, dhanalla
+- details:
+  - New IR node (suggested by V. Kozlov), named SafePointScalarMergeNode, to represent a set of SafePointScalarObjectNode;
+  - Each scalar replaceable input participating in a merge will get a SafePointScalarObjectNode like if it weren't part of a merge;
+  - Add a new Class to support the rematerialization of SR objects that are part of a merge;
+  - Patch HotSpot to be able to serialize and deserialize debug information related to allocation merges;
+  - Patch C2 to generate unique types for SR objects participating in some allocation merges.
+  - Fix: Incorrect rematerialization of scalar replaced objects in C2
+  - Fix: Segfault during deoptimization of C2-compiled code
+  - Fix: VM crash during heap dump after JDK-8287061
+  - Fix: AllocationMergesTests.java fails with "IRViolationException: There were one or multiple IR rule failures."
+  - Fix: Live Node limit exceeded limit after JDK-8316991
+  - Fix: assert((uint)type <= T_CONFLICT && _zero_type[type] != nullptr) failed: bad type with -XX:-UseCompressedClassPointers
+  - Fix: CTW fail with assert(adr_t->is_known_instance_field()) failed: instance
+  - Fix: NPE in ArrayCreationTree.java with -XX:-UseCompressedOops
+  - Fix: Deoptimization fails with assert "object should be reallocated already"
+  - Fix: C2 EA asserts with "previous reducible Phi is no longer reducible before SUT"
+- release_note: New feature to improve the performance of Escape Analysis by increasing the number of opportunities for Scalar Replacement.
