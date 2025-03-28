@@ -1942,27 +1942,27 @@ _unwind___jsvml_sinh8_ha_z0_B1_B9:
 
 	ALIGN 004H
 _unwind___jsvml_sinh8_ha_z0_B11_B15:
-        DD      2284577
-        DD      7558364
-        DD      7369937
-        DD      7431367
-        DD      7484605
-        DD      153781
-        DD      411818
-        DD      669855
-        DD      927892
-        DD      1185929
-        DD      1443966
-        DD      1767539
-        DD      2025576
-        DD      2283613
-        DD      2541650
-        DD      2799687
-        DD      3057724
-        DD      3307569
-        DD      imagerel _B9_1
-        DD      imagerel _B9_11
-        DD      imagerel _unwind___jsvml_sinh8_ha_z0_B1_B9
+	DD	2284577
+	DD	7558364
+	DD	7369937
+	DD	7431367
+	DD	7484605
+	DD	153781
+	DD	411818
+	DD	669855
+	DD	927892
+	DD	1185929
+	DD	1443966
+	DD	1767539
+	DD	2025576
+	DD	2283613
+	DD	2541650
+	DD	2799687
+	DD	3057724
+	DD	3307569
+	DD	imagerel _B9_1
+	DD	imagerel _B9_11
+	DD	imagerel _unwind___jsvml_sinh8_ha_z0_B1_B9
 
 .xdata	ENDS
 .pdata	SEGMENT  DWORD   READ  ''
