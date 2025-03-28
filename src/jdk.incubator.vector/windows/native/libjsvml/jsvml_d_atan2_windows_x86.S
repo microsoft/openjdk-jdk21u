@@ -2695,20 +2695,19 @@ _TEXT	ENDS
 
 	ALIGN 004H
 _unwind___jsvml_atan28_ha_z0_B1_B10:
-        DD      1611265
-        DD      6018198
-        DD      4614286
-        DD      3569795
-        DD      4098168
-        DD      4364397
-        DD      3844194
-        DD      3323991
-        DD      3065932
-        DD      5167169
-        DD      5433398
-        DD      4913195
-        DD      11469067
-
+	DD	1611265
+	DD	6018198
+	DD	4614286
+	DD	3569795
+	DD	4098168
+	DD	4364397
+	DD	3844194
+	DD	3323991
+	DD	3065932
+	DD	5167169
+	DD	5433398
+	DD	4913195
+	DD	11469067
 
 .xdata	ENDS
 .pdata	SEGMENT  DWORD   READ  ''
@@ -2724,20 +2723,20 @@ _unwind___jsvml_atan28_ha_z0_B1_B10:
 
 	ALIGN 004H
 _unwind___jsvml_atan28_ha_z0_B12_B16:
-        DD      1342753
-        DD      3757181
-        DD      3568754
-        DD      3630184
-        DD      3683422
-        DD      153686
-        DD      411723
-        DD      669760
-        DD      927797
-        DD      1185834
-        DD      1443871
-        DD      imagerel _B7_1
-        DD      imagerel _B7_12
-        DD      imagerel _unwind___jsvml_atan28_ha_z0_B1_B10
+	DD	1342753
+	DD	3757181
+	DD	3568754
+	DD	3630184
+	DD	3683422
+	DD	153686
+	DD	411723
+	DD	669760
+	DD	927797
+	DD	1185834
+	DD	1443871
+	DD	imagerel _B7_1
+	DD	imagerel _B7_12
+	DD	imagerel _unwind___jsvml_atan28_ha_z0_B1_B10
 
 .xdata	ENDS
 .pdata	SEGMENT  DWORD   READ  ''
