@@ -1,0 +1,7 @@
+title: Cleanup unknown unwind opcode (0xB) for windows
+- work_item: 2430162
+- author: dhanalla
+- owner: dhanalla
+- details:
+  - clean-up unknown unwind opcodes (0xB) in Windows intrinsic functions.
+- release_note: Remove the unknown unwind opcodes (0xB) in Windows intrinsic functions.
