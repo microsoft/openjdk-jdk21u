@@ -22,6 +22,7 @@ active-patches:
   - ms-patches/large-pages
   - ms-patches/remove_undocumentedAPI
   - ms-patches/8345296-aarch64-prctl
+  - ms-patches/cleanup-unknown-unwind-opcodes
 
 
 ## Upstreamed Patches
