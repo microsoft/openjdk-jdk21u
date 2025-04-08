@@ -23,6 +23,7 @@ active-patches:
   - ms-patches/remove_undocumentedAPI
   - ms-patches/8345296-aarch64-prctl
   - ms-patches/cleanup-unknown-unwind-opcodes
+  - ms-patches/enable-high-performance-gpu-selection-for-windows-in-jvm
 
 
 ## Upstreamed Patches
