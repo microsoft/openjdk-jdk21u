@@ -1,0 +1,10 @@
+title: Hotspot should support multiple large page sizes on Windows
+- work_item: 2284789
+- author: dhanalla, singhnitin
+- owner: dhanalla, singhnitin
+- contributors:
+  - singhnitin
+- details:
+  - Overcome the 4MB large page size limitation and enhance Windows' support to match Linux's flexibility.
+  - Supports multiple large page sizes excluding the IA32 architecture.
+- release_note: Remove the 4MB limit on AMD64 for Windows, enabling fallback options on all architectures except IA32. An experimental flag allows users to test the new large page handling.
