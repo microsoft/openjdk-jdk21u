@@ -19,4 +19,5 @@ title: Reduce Allocation Merges
   - Fix: NPE in ArrayCreationTree.java with -XX:-UseCompressedOops
   - Fix: Deoptimization fails with assert "object should be reallocated already"
   - Fix: C2 EA asserts with "previous reducible Phi is no longer reducible before SUT"
+  - Fix: C2 compilation hits asserts "must set the initial type just once"
 - release_note: New feature to improve the performance of Escape Analysis by increasing the number of opportunities for Scalar Replacement.
