@@ -20,7 +20,6 @@ active-patches:
   - ms-patches/8317562-jfr-compiler-queues
   - ms-patches/gettemppath2
   - ms-patches/remove_undocumentedAPI
-  - ms-patches/8345296-aarch64-prctl
   - ms-patches/cleanup-unknown-unwind-opcodes
   - ms-patches/enable-high-performance-gpu-selection-for-windows-in-jvm
 
@@ -33,6 +32,7 @@ active-patches:
   # - ZZ_archive/ms-patches/8334475-fix-jlong-copy
   # - ZZ_archive/ms-patches/use-all-windows-processor-groups
   # - ZZ_archive/ms-patches/large-pages
+  # - ZZ_archive/ms-patches/8345296-aarch64-prctl
 
 
 # Patches that we are no longer applying to our releases as they have
