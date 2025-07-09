@@ -22,6 +22,7 @@ active-patches:
   - ms-patches/remove_undocumentedAPI
   - ms-patches/cleanup-unknown-unwind-opcodes
   - ms-patches/enable-high-performance-gpu-selection-for-windows-in-jvm
+  - ms-patches/8357445-time-based-uncommit
 
 
 ## Upstreamed Patches
