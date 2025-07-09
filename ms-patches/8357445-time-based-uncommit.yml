@@ -11,7 +11,7 @@ title: Time Based Uncommit
     - Implemented time-based heap sizing policy with configurable uncommit delay
     - Added region activity tracking with last access timestamps
     - Integrated VM_G1ShrinkHeap operation for safe heap shrinking
-    - Added new G1 flags: G1UseTimeBasedHeapSizing, G1TimeBasedEvaluationIntervalMillis, G1UncommitDelayMillis, G1MinRegionsToUncommit
+    - Added new G1 flags - G1UseTimeBasedHeapSizing, G1TimeBasedEvaluationIntervalMillis, G1UncommitDelayMillis, G1MinRegionsToUncommit
     - Added 'sizing' log tag for heap sizing operations
   - Comprehensive Test Coverage:
     - Enhanced TestG1RegionUncommit: minimum heap boundaries, concurrent allocation/uncommit scenarios
