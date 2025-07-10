@@ -24,6 +24,7 @@
 
 #include "precompiled.hpp"
 #include "gc/g1/g1InitLogger.hpp"
+#include "gc/g1/g1_globals.hpp"
 #include "gc/shared/gcLogPrecious.hpp"
 #include "gc/shared/gc_globals.hpp"
 #include "runtime/globals.hpp"
@@ -48,6 +49,13 @@ void G1InitLogger::print_gc_specific() {
     log_info_p(gc, init)("Periodic GC Interval: " UINTX_FORMAT "ms", G1PeriodicGCInterval);
   } else {
     log_info_p(gc, init)("Periodic GC: Disabled");
+  }
+
+  // Print a message about time-based heap sizing configuration.
+  if (G1UseTimeBasedHeapSizing) {
+    log_info_p(gc, init)("G1 Time-Based Heap Sizing enabled (uncommit-only)");
+    log_info_p(gc, init)("  evaluation_interval=%zums, uncommit_delay=%zums, min_regions_to_uncommit=%zu",
+                         G1TimeBasedEvaluationIntervalMillis, G1UncommitDelayMillis, G1MinRegionsToUncommit);
   }
 }
 
