@@ -118,6 +118,7 @@ void HeapRegion::unlink_from_list() {
 
 void HeapRegion::hr_clear(bool clear_space) {
   set_top(bottom());
+  record_activity(); // Record region initialization
   clear_young_index_in_cset();
   clear_index_in_opt_cset();
   uninstall_surv_rate_group();
@@ -234,7 +235,8 @@ HeapRegion::HeapRegion(uint hrm_index,
   _young_index_in_cset(-1),
   _surv_rate_group(nullptr),
   _age_index(G1SurvRateGroup::InvalidAgeIndex),
-  _node_index(G1NUMA::UnknownNodeIndex)
+  _node_index(G1NUMA::UnknownNodeIndex),
+  _last_access_timestamp(os::javaTimeMillis())
 {
   assert(Universe::on_page_boundary(mr.start()) && Universe::on_page_boundary(mr.end()),
          "invalid space boundaries");
