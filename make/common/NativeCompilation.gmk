@@ -398,6 +398,12 @@ define SetupCompileNativeFileBody
         endif
         $1_FLAGS := $$($1_FLAGS) -DASSEMBLY_SRC_FILE='"$$($1_REL_ASM_SRC)"' \
             -include $(TOPDIR)/make/data/autoheaders/assemblyprefix.h
+      else ifeq ($(TOOLCHAIN_TYPE), microsoft)
+        ifeq ($(OPENJDK_TARGET_CPU), aarch64)
+          $1_NON_ASM_EXTENSION_FLAG :=
+        else
+          $1_NON_ASM_EXTENSION_FLAG := "-Ta"
+        endif
       endif
     else ifneq ($$(filter %.cpp %.cc %.mm, $$($1_FILENAME)), )
       # Compile as a C++ or Objective-C++ file
