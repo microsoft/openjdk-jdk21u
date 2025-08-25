@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,12 @@
 #ifndef SHARE_GC_G1_G1HEAPSIZINGPOLICY_HPP
 #define SHARE_GC_G1_G1HEAPSIZINGPOLICY_HPP
 
+#include "gc/g1/g1_globals.hpp"
+#include "gc/g1/heapRegion.hpp"
 #include "memory/allocation.hpp"
+#include "runtime/globals.hpp"
+#include "utilities/debug.hpp"
+#include "utilities/globalDefinitions.hpp"
 
 class G1Analytics;
 class G1CollectedHeap;
@@ -35,6 +40,7 @@ class G1HeapSizingPolicy: public CHeapObj<mtGC> {
   // pause times in G1Analytics, representing the minimum number of pause
   // time ratios that exceed GCTimeRatio before a heap expansion will be triggered.
   const static uint MinOverThresholdForGrowth = 4;
+  static jlong _uncommit_delay_ms;  // Delay before uncommitting inactive regions
 
   const G1CollectedHeap* _g1h;
   const G1Analytics* _analytics;
@@ -50,8 +56,12 @@ class G1HeapSizingPolicy: public CHeapObj<mtGC> {
   double scale_with_heap(double pause_time_threshold);
 
   G1HeapSizingPolicy(const G1CollectedHeap* g1h, const G1Analytics* analytics);
-public:
 
+  // Methods for time-based sizing
+  void get_uncommit_candidates(GrowableArray<HeapRegion*>* candidates);
+  bool should_uncommit_region(HeapRegion* hr) const;
+
+public:
   // If an expansion would be appropriate, because recent GC overhead had
   // exceeded the desired limit, return an amount to expand by.
   size_t young_collection_expansion_amount();
@@ -61,6 +71,11 @@ public:
   size_t full_collection_resize_amount(bool& expand);
   // Clear ratio tracking data used by expansion_amount().
   void clear_ratio_check_data();
+
+  // Time-based sizing methods
+  static void initialize();  // Declaration only
+  static jlong uncommit_delay() { return _uncommit_delay_ms; }
+  size_t evaluate_heap_resize(bool& expand);
 
   static G1HeapSizingPolicy* create(const G1CollectedHeap* g1h, const G1Analytics* analytics);
 };
