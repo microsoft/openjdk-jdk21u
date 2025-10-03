@@ -6428,9 +6428,6 @@ bool os::win32::platform_print_native_stack(outputStream* st, const void* contex
   #error unknown architecture
 #endif
 
-  // Ensure we consider dynamically loaded dll's
-  SymbolEngine::refreshModuleList();
-
   int count = 0;
   address lastpc_internal = 0;
   while (count++ < StackPrintLimit) {
