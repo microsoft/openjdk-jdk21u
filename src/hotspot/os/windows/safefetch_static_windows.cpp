@@ -24,6 +24,7 @@
  */
 
 
+#include "precompiled.hpp"
 #include "os_windows.hpp"
 #include "runtime/os.hpp"
 #include "runtime/safefetch.hpp"
