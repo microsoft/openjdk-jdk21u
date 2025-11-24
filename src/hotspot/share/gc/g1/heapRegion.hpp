@@ -34,6 +34,8 @@
 #include "gc/shared/spaceDecorator.hpp"
 #include "gc/shared/verifyOption.hpp"
 #include "runtime/mutex.hpp"
+#include "runtime/os.hpp"
+#include "utilities/globalDefinitions.hpp"
 #include "utilities/macros.hpp"
 
 class G1CardSetConfiguration;
@@ -68,7 +70,9 @@ class nmethod;
 // room for filler objects to pad out to the end of the region.
 class HeapRegion : public CHeapObj<mtGC> {
   friend class VMStructs;
+  friend class G1Allocator;  // For access to record_activity()
 
+private:
   HeapWord* const _bottom;
   HeapWord* const _end;
 
@@ -260,6 +264,9 @@ private:
   // NUMA node.
   uint _node_index;
 
+  // For time-based heap sizing
+  jlong _last_access_timestamp;
+
   void report_region_type_change(G1HeapRegionTraceType::Type to);
 
   template <class Closure, bool in_gc_pause>
@@ -406,6 +413,24 @@ public:
   bool is_old() const { return _type.is_old(); }
 
   bool is_old_or_humongous() const { return _type.is_old_or_humongous(); }
+
+  // Returns true if the region has been inactive for longer than the uncommit delay
+  bool should_uncommit(uint64_t delay) const {
+    if (!is_empty()) {
+      return false;
+    }
+    jlong current_time = os::javaTimeMillis();
+    jlong elapsed = current_time - _last_access_timestamp;
+    return elapsed > (jlong)delay;
+  }
+
+  void record_activity() {
+    _last_access_timestamp = os::javaTimeMillis();  // Use milliseconds to match uncommit check
+  }
+
+  jlong last_access_time() const {
+    return _last_access_timestamp;
+  }
 
   void set_free();
 
