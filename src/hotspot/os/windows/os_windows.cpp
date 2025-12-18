@@ -2924,8 +2924,7 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
 
 #if defined(_M_ARM64)
   should_report_error = should_report_error &&
-                        FAILED(exception_code) &&
-                        (exception_code != EXCEPTION_UNCAUGHT_CXX_EXCEPTION);
+                        (exception_code != DBG_PRINTEXCEPTION_C);
 #endif
 
   if (should_report_error) {
