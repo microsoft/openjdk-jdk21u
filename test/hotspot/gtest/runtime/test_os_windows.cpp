@@ -863,24 +863,15 @@ TEST_VM(os_windows, guard_page_exception_handling) {
   volatile bool exception_triggered = false;
   volatile bool test_completed = false;
   
-  __try {
-    // Access the guard page - this should trigger EXCEPTION_GUARD_PAGE
-    // which will be handled by topLevelExceptionFilter
-    char* guard_page = (char*)mem;
-    *guard_page = 42;  // Write to trigger the guard page exception
-    
-    // If we reach here, the exception was handled and the page was committed
-    // Verify we can read back the value
-    EXPECT_EQ(*guard_page, 42) << "Value not written correctly after guard page exception";
-    test_completed = true;
-  }
-  __except(GetExceptionCode() == EXCEPTION_GUARD_PAGE ? 
-           (exception_triggered = true, EXCEPTION_EXECUTE_HANDLER) : 
-           EXCEPTION_CONTINUE_SEARCH) {
-    // The guard page exception was caught by this handler
-    // This is expected behavior - the OS automatically removes the PAGE_GUARD
-    // protection after the first access
-  }
+  // Access the guard page - this should trigger EXCEPTION_GUARD_PAGE
+  // which will be handled by topLevelExceptionFilter
+  char* guard_page = (char*)mem;
+  *guard_page = 42;  // Write to trigger the guard page exception
+  
+  // If we reach here, the exception was handled and the page was committed
+  // Verify we can read back the value
+  EXPECT_EQ(*guard_page, 42) << "Value not written correctly after guard page exception";
+  test_completed = true;
   
   // Verify the exception was triggered (either caught here or by the system)
   // Note: The system may have already handled it via topLevelExceptionFilter
@@ -908,21 +899,14 @@ TEST_VM(os_windows, guard_page_one_shot_semantics) {
   
   volatile int exception_count = 0;
   
-  __try {
-    // First access - should trigger EXCEPTION_GUARD_PAGE
-    *guard_page = 1;
-    
-    // Second access to the same page - should NOT trigger exception
-    // because guard pages have one-shot semantics
-    *guard_page = 2;
-    
-    EXPECT_EQ(*guard_page, 2) << "Second write failed";
-  }
-  __except(GetExceptionCode() == EXCEPTION_GUARD_PAGE ? 
-           (exception_count++, EXCEPTION_EXECUTE_HANDLER) : 
-           EXCEPTION_CONTINUE_SEARCH) {
-    // Exception caught - this should only happen once
-  }
+  // First access - should trigger EXCEPTION_GUARD_PAGE
+  *guard_page = 1;
+  
+  // Second access to the same page - should NOT trigger exception
+  // because guard pages have one-shot semantics
+  *guard_page = 2;
+  
+  EXPECT_EQ(*guard_page, 2) << "Second write failed";
   
   // Verify the guard page exception occurred at most once (one-shot semantics)
   EXPECT_LE(exception_count, 1) << "Guard page exception should only fire once";
