@@ -934,7 +934,7 @@ TEST_VM(os_windows, guard_page_one_shot_semantics_try_catch) {
 // Test that the topLevelExceptionFilter correctly handles guard page exceptions.
 // This test allocates memory with PAGE_GUARD protection and accesses it to trigger
 // a EXCEPTION_GUARD_PAGE exception, which should be handled by the exception filter.
-TEST_VM(os_windows, guard_page_exception_handling) {
+TEST_VM(os_windows, guard_page_exception_handling_veh) {
   const size_t page_size = os::vm_page_size();
   const size_t alloc_size = page_size * 2;
   
@@ -971,7 +971,7 @@ TEST_VM(os_windows, guard_page_exception_handling) {
 }
 
 // Test guard page exception with multiple accesses to verify one-shot behavior
-TEST_VM(os_windows, guard_page_one_shot_semantics) {
+TEST_VM(os_windows, guard_page_one_shot_semantics_veh) {
   const size_t page_size = os::vm_page_size();
   const size_t alloc_size = page_size * 3;
   
