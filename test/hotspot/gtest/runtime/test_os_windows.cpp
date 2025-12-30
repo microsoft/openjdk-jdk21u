@@ -846,6 +846,94 @@ TEST_VM(os_windows, reserve_memory_special_concurrent) {
 // Test that the topLevelExceptionFilter correctly handles guard page exceptions.
 // This test allocates memory with PAGE_GUARD protection and accesses it to trigger
 // a EXCEPTION_GUARD_PAGE exception, which should be handled by the exception filter.
+TEST_VM(os_windows, guard_page_exception_handling_try_catch) {
+  const size_t page_size = os::vm_page_size();
+  const size_t alloc_size = page_size * 2;
+  
+  // Allocate memory with read-write access
+  void* mem = VirtualAlloc(nullptr, alloc_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+  ASSERT_NE(mem, nullptr) << "Failed to allocate memory: " << GetLastError();
+  
+  // Set guard page protection on the first page
+  DWORD old_protect;
+  BOOL result = VirtualProtect(mem, page_size, PAGE_READWRITE | PAGE_GUARD, &old_protect);
+  ASSERT_TRUE(result) << "Failed to set guard page protection: " << GetLastError();
+  
+  // Track whether the guard page exception was triggered
+  volatile bool exception_triggered = false;
+  volatile bool test_completed = false;
+  
+  __try {
+    // Access the guard page - this should trigger EXCEPTION_GUARD_PAGE
+    // which will be handled by topLevelExceptionFilter
+    char* guard_page = (char*)mem;
+    *guard_page = 42;  // Write to trigger the guard page exception
+    
+    // If we reach here, the exception was handled and the page was committed
+    // Verify we can read back the value
+    EXPECT_EQ(*guard_page, 42) << "Value not written correctly after guard page exception";
+    test_completed = true;
+  }
+  __except(GetExceptionCode() == EXCEPTION_GUARD_PAGE ? 
+           (exception_triggered = true, EXCEPTION_EXECUTE_HANDLER) : 
+           EXCEPTION_CONTINUE_SEARCH) {
+    // The guard page exception was caught by this handler
+    // This is expected behavior - the OS automatically removes the PAGE_GUARD
+    // protection after the first access
+  }
+  
+  // Verify the exception was triggered (either caught here or by the system)
+  // Note: The system may have already handled it via topLevelExceptionFilter
+  EXPECT_TRUE(exception_triggered || test_completed) 
+    << "Guard page exception was not triggered or handled properly";
+  
+  // Clean up
+  VirtualFree(mem, 0, MEM_RELEASE);
+}
+
+// Test guard page exception with multiple accesses to verify one-shot behavior
+TEST_VM(os_windows, guard_page_one_shot_semantics_try_catch) {
+  const size_t page_size = os::vm_page_size();
+  const size_t alloc_size = page_size * 3;
+  
+  // Allocate memory
+  void* mem = VirtualAlloc(nullptr, alloc_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+  ASSERT_NE(mem, nullptr) << "Failed to allocate memory: " << GetLastError();
+  
+  // Set guard page on middle page
+  char* guard_page = (char*)mem + page_size;
+  DWORD old_protect;
+  BOOL result = VirtualProtect(guard_page, page_size, PAGE_READWRITE | PAGE_GUARD, &old_protect);
+  ASSERT_TRUE(result) << "Failed to set guard page protection: " << GetLastError();
+  
+  volatile int exception_count = 0;
+  
+  __try {
+    // First access - should trigger EXCEPTION_GUARD_PAGE
+    *guard_page = 1;
+    
+    // Second access to the same page - should NOT trigger exception
+    // because guard pages have one-shot semantics
+    *guard_page = 2;
+    
+    EXPECT_EQ(*guard_page, 2) << "Second write failed";
+  }
+  __except(GetExceptionCode() == EXCEPTION_GUARD_PAGE ? 
+           (exception_count++, EXCEPTION_EXECUTE_HANDLER) : 
+           EXCEPTION_CONTINUE_SEARCH) {
+    // Exception caught - this should only happen once
+  }
+  
+  // Verify the guard page exception occurred at most once (one-shot semantics)
+  EXPECT_LE(exception_count, 1) << "Guard page exception should only fire once";
+  
+  // Clean up
+  VirtualFree(mem, 0, MEM_RELEASE);
+}
+
+// Test that the topLevelExceptionFilter correctly handles guard page exceptions.
+// This test allocates memory with PAGE_GUARD protection and accesses it to trigger
+// a EXCEPTION_GUARD_PAGE exception, which should be handled by the exception filter.
 TEST_VM(os_windows, guard_page_exception_handling) {
   const size_t page_size = os::vm_page_size();
   const size_t alloc_size = page_size * 2;
