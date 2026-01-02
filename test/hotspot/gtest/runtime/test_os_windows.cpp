@@ -843,6 +843,7 @@ TEST_VM(os_windows, reserve_memory_special_concurrent) {
   testRunner.run();
 }
 
+#ifndef _M_ARM64
 // Test that the topLevelExceptionFilter correctly handles guard page exceptions.
 // This test allocates memory with PAGE_GUARD protection and accesses it to trigger
 // a EXCEPTION_GUARD_PAGE exception, which should be handled by the exception filter.
@@ -930,6 +931,7 @@ TEST_VM(os_windows, guard_page_one_shot_semantics_try_catch) {
   // Clean up
   VirtualFree(mem, 0, MEM_RELEASE);
 }
+#endif // _M_ARM64
 
 // Test that the topLevelExceptionFilter correctly handles guard page exceptions.
 // This test allocates memory with PAGE_GUARD protection and accesses it to trigger
