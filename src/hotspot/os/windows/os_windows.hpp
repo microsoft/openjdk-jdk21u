@@ -172,8 +172,6 @@ public:
   // signal support
   static void* install_signal_handler(int sig, signal_handler_t handler);
   static void* user_handler();
-
-  static void context_set_pc(CONTEXT* uc, address pc);
 };
 
 #endif // OS_WINDOWS_OS_WINDOWS_HPP
