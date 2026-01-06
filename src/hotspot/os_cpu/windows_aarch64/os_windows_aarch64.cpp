@@ -99,10 +99,6 @@ frame os::fetch_frame_from_context(const void* ucVoid) {
   return frame(sp, fp, epc);
 }
 
-void os::win32::context_set_pc(CONTEXT* uc, address pc) {
-  uc->Pc = (intptr_t)pc;
-}
-
 bool os::win32::get_frame_at_stack_banging_point(JavaThread* thread,
         struct _EXCEPTION_POINTERS* exceptionInfo, address pc, frame* fr) {
   PEXCEPTION_RECORD exceptionRecord = exceptionInfo->ExceptionRecord;
