@@ -64,7 +64,7 @@ public class UncaughtNativeExceptionTest {
         assertTrue(Files.exists(hsErrPath));
 
         Pattern[] positivePatterns = {
-            Pattern.compile(".*Internal Error \\(0xdeadbeef\\).*")
+            Pattern.compile(".*Internal Error \\(0x2a\\).*")
         };
         HsErrFileUtils.checkHsErrFileContent(hsErrFile, positivePatterns, null, true /* check end marker */, false /* verbose */);
     }
