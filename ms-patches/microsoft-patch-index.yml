@@ -24,6 +24,7 @@ active-patches:
   - ms-patches/enable-high-performance-gpu-selection-for-windows-in-jvm
   - ms-patches/8357445-time-based-uncommit
   - ms-patches/win-aarch64-fixes
+  - ms-patches/detect-lse
 
 
 ## Upstreamed Patches
