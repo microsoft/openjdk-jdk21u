@@ -6,4 +6,4 @@ title: Detect LSE on Windows AArch64
 - contributors: macarte
 - details:
 - release_note:
-  - Detect LSE on Windows AArch64 and set the UseLSE flag appropriatly
+  - Detect LSE on Windows AArch64 and set the UseLSE flag appropriately
