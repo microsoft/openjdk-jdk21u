@@ -33,6 +33,7 @@
 #include "gc/g1/heapRegion.inline.hpp"
 #include "gc/g1/heapRegionSet.inline.hpp"
 #include "gc/g1/heapRegionType.hpp"
+#include "runtime/safepoint.hpp"
 #include "gc/shared/tlab_globals.hpp"
 #include "runtime/mutexLocker.hpp"
 #include "utilities/align.hpp"
@@ -202,7 +203,8 @@ size_t G1Allocator::unsafe_max_tlab_alloc() {
 }
 
 size_t G1Allocator::used_in_alloc_regions() {
-  assert(Heap_lock->owner() != nullptr, "Should be owned on this thread's behalf.");
+  assert(Heap_lock->owner() != nullptr || SafepointSynchronize::is_at_safepoint(),
+         "Should be owned on this thread's behalf or at safepoint.");
   size_t used = 0;
   for (uint i = 0; i < _num_alloc_regions; i++) {
     used += mutator_alloc_region(i)->used_in_alloc_regions();
@@ -248,6 +250,7 @@ HeapWord* G1Allocator::survivor_attempt_allocation(uint node_index,
   HeapWord* result = survivor_gc_alloc_region(node_index)->attempt_allocation(min_word_size,
                                                                               desired_word_size,
                                                                               actual_word_size);
+  
   if (result == nullptr && !survivor_is_full()) {
     MutexLocker x(FreeList_lock, Mutex::_no_safepoint_check_flag);
     // Multiple threads may have queued at the FreeList_lock above after checking whether there

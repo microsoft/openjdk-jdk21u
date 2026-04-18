@@ -29,6 +29,9 @@
 #include "compiler/compileBroker.hpp"
 #include "gc/shared/collectedHeap.hpp"
 #include "gc/shared/isGCActiveMark.hpp"
+#if INCLUDE_G1GC
+#include "gc/g1/g1CollectedHeap.hpp"
+#endif
 #include "logging/log.hpp"
 #include "logging/logStream.hpp"
 #include "logging/logConfiguration.hpp"
@@ -612,6 +615,12 @@ void VM_Exit::wait_if_vm_exited() {
 void VM_PrintCompileQueue::doit() {
   CompileBroker::print_compile_queues(_out);
 }
+
+#if INCLUDE_G1GC
+void VM_G1ShrinkHeap::doit() {
+  _g1h->shrink(_bytes);
+}
+#endif
 
 #if INCLUDE_SERVICES
 void VM_PrintClassHierarchy::doit() {
