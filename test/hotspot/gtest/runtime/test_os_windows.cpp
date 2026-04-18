@@ -29,6 +29,8 @@
 #include "runtime/flags/flagSetting.hpp"
 #include "runtime/globals_extension.hpp"
 #include "runtime/os.hpp"
+#include "runtime/safefetch.hpp"
+#include "utilities/globalDefinitions.hpp"
 #include "concurrentTestRunner.inline.hpp"
 #include "unittest.hpp"
 
@@ -841,6 +843,62 @@ TEST_VM(os_windows, reserve_memory_special_concurrent) {
   ReserveMemorySpecialRunnable runnable;
   ConcurrentTestRunner testRunner(&runnable, 30, 15000);
   testRunner.run();
+}
+
+// Test that SafeFetch correctly returns the error value when reading
+// from a page with PAGE_GUARD protection on Windows.
+// PAGE_GUARD raises STATUS_GUARD_PAGE_VIOLATION which is distinct from
+// EXCEPTION_ACCESS_VIOLATION. SafeFetch must handle both.
+TEST_VM(os_windows, safefetch_page_guard) {
+  const DWORD page_size = (DWORD)os::vm_page_size();
+
+  // Allocate a committed read-write page.
+  void* mem = ::VirtualAlloc(nullptr, page_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+  ASSERT_NE(mem, nullptr) << "VirtualAlloc failed";
+
+  // Write known patterns into the page.
+  static const intptr_t patternN = LP64_ONLY(0xABCDDEADBEEFABCDULL) NOT_LP64(0xDEADBEEF);
+  static const int pattern32 = (int)0xDEADBEEF;
+  intptr_t* addrN = (intptr_t*)mem;
+  int*      addr32 = (int*)mem;
+  *addrN = patternN;
+  // Place the 32-bit pattern right after the intptr_t value.
+  *(int*)((char*)mem + sizeof(intptr_t)) = pattern32;
+  addr32 = (int*)((char*)mem + sizeof(intptr_t));
+
+  // Sanity: SafeFetch should read the values before we guard the page.
+  ASSERT_EQ(patternN, SafeFetchN(addrN, 0));
+  ASSERT_EQ((uint64_t)pattern32, (uint64_t)SafeFetch32(addr32, 0));
+
+  // Now set PAGE_GUARD on the page. The next access will raise
+  // STATUS_GUARD_PAGE_VIOLATION (one-shot semantics).
+  DWORD old_protect;
+  BOOL ok = ::VirtualProtect(mem, page_size, PAGE_READWRITE | PAGE_GUARD, &old_protect);
+  ASSERT_TRUE(ok) << "VirtualProtect PAGE_GUARD failed";
+
+  // SafeFetchN: should return the error value, not the page contents.
+  intptr_t resultN = SafeFetchN(addrN, -1);
+  ASSERT_EQ((intptr_t)-1, resultN)
+      << "SafeFetchN should return errValue for PAGE_GUARD page";
+
+  // Re-arm the guard (it was consumed by the previous fault).
+  ok = ::VirtualProtect(mem, page_size, PAGE_READWRITE | PAGE_GUARD, &old_protect);
+  ASSERT_TRUE(ok) << "VirtualProtect PAGE_GUARD re-arm failed";
+
+  // SafeFetch32: should also return the error value.
+  int result32 = SafeFetch32(addr32, -1);
+  ASSERT_EQ(-1, result32)
+      << "SafeFetch32 should return errValue for PAGE_GUARD page";
+
+  // Re-arm the guard one more time to test with a different error value.
+  ok = ::VirtualProtect(mem, page_size, PAGE_READWRITE | PAGE_GUARD, &old_protect);
+  ASSERT_TRUE(ok) << "VirtualProtect PAGE_GUARD re-arm failed";
+
+  intptr_t resultN2 = SafeFetchN(addrN, ~patternN);
+  ASSERT_EQ(~patternN, resultN2)
+      << "SafeFetchN should return the exact errValue passed";
+
+  ::VirtualFree(mem, 0, MEM_RELEASE);
 }
 
 #endif
