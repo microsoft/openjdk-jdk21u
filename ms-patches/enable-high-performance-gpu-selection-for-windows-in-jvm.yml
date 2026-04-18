@@ -1,0 +1,8 @@
+title: Enable High-Performance GPU Selection for Windows in JVM
+- work_item: '1949141'
+- author: mo-beck
+- owner: mo-beck
+- details:
+  - Exported driver hints to prefer high-performance GPU (NVIDIA/AMD) from the JVM
+  - Useful in environments like Minecraft, IDEs, or ML tooling to ensure GPU utilization
+- release_note: ''Enabled GPU selection hinting in Windows builds using NvOptimusEnablement and AmdPowerXpressRequestHighPerformance''
