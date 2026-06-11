@@ -25,6 +25,16 @@ active-patches:
   - ms-patches/8357445-time-based-uncommit
   - ms-patches/win-aarch64-fixes
   - ms-patches/detect-lse
+  - ms-patches/connect-timeout
+  - ms-patches/get-space
+  - ms-patches/jmx-remote-bootstrap
+  - ms-patches/msys2-fixes-1
+  - ms-patches/msys2-fixes-2
+  - ms-patches/msys2-fixes-3
+  - ms-patches/multiple-logins
+  - ms-patches/processor-api
+  - ms-patches/reserved-stack-area
+  - ms-patches/stack-overflow-javac
 
 
 ## Upstreamed Patches
