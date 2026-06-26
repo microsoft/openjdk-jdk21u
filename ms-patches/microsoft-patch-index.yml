@@ -35,6 +35,7 @@ active-patches:
   - ms-patches/processor-api
   - ms-patches/reserved-stack-area
   - ms-patches/stack-overflow-javac
+  - ms-patches/win-aarch64-TestTrampoline
 
 
 ## Upstreamed Patches
