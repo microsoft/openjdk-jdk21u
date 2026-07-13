@@ -32,4 +32,10 @@ inline bool os::register_code_area(char *low, char *high) {
   return true;
 }
 
+#define HAVE_PLATFORM_PRINT_NATIVE_STACK 1
+inline bool os::platform_print_native_stack(outputStream* st, const void* context,
+                                     char *buf, int buf_size, address& lastpc) {
+  return os::win32::platform_print_native_stack(st, context, buf, buf_size, lastpc);
+}
+
 #endif // OS_CPU_WINDOWS_AARCH64_OS_WINDOWS_AARCH64_INLINE_HPP
