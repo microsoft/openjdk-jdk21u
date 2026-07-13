@@ -1,0 +1,8 @@
+title: Fix ACEs for JMX remote bootstrap tests
+- work_item: 3015457
+- jbs_bug:
+- author: raneashay
+- owner: raneashay
+- contributors: raneashay
+- details:
+- release_note: Fix generation of Access Control Entries in JMX remote bootstrap tests
