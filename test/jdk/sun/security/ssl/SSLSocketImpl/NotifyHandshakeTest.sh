@@ -51,7 +51,7 @@ case "$OS" in
         PATHSEP=":"
         ;;
 
-    CYGWIN* )
+    CYGWIN* | MSYS* | MINGW* )
         FILESEP="/"
         PATHSEP=";"
         ;;
