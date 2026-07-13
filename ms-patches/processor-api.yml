@@ -1,0 +1,9 @@
+title: Use the new Processor API
+- work_item: 3015474
+- jbs_bug:
+- author: raneashay
+- owner: raneashay
+- contributors: raneashay
+- details:
+- release_note:
+    - Use the "Processor Information" counter to enumerate processors in all processor groups
