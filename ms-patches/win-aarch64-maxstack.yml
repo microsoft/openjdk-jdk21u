@@ -1,0 +1,9 @@
+title: Fix Windows AArch64 max_stack initialization
+- work_item: 3025722
+- jbs_bug: 8387392
+- author: swesonga
+- owner: swesonga
+- contributors: swesonga
+- details:
+- release_note:
+  - Fixes access violations raised when executing methods with large expression stacks on Windows AArch64
