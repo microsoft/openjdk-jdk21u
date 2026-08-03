@@ -1,0 +1,7 @@
+title: dt_socket
+- work_item: 3042008
+- author: raneashay
+- owner: raneashay
+- contributors: raneashay
+- details:
+- release_note: Ignore "dt_socket" for Windows/ARM64
