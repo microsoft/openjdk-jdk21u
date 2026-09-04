@@ -32,10 +32,8 @@ active-patches:
   - ms-patches/msys2-fixes-2
   - ms-patches/msys2-fixes-3
   - ms-patches/multiple-logins
-  - ms-patches/processor-api
   - ms-patches/reserved-stack-area
   - ms-patches/win-aarch64-TestTrampoline
-  - ms-patches/dt_socket-fix
 
 
 ## Upstreamed Patches
@@ -47,6 +45,8 @@ active-patches:
   # - ZZ_archive/ms-patches/use-all-windows-processor-groups
   # - ZZ_archive/ms-patches/large-pages
   # - ZZ_archive/ms-patches/8345296-aarch64-prctl
+  # - ZZ_archive/ms-patches/processor-api
+  # - ZZ_archive/ms-patches/dt_socket-fix
 
 
 # Patches that we are no longer applying to our releases as they have
