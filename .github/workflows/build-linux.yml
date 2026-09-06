@@ -78,7 +78,7 @@ jobs:
 
     steps:
       - name: 'Checkout the JDK source'
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: 'Get the BootJDK'
         id: bootjdk
@@ -119,7 +119,7 @@ jobs:
           bash configure
           --with-conf-name=${{ inputs.platform }}
           ${{ matrix.flags }}
-          --with-version-opt=${GITHUB_ACTOR}-${GITHUB_SHA}
+          --with-version-opt=${GITHUB_ACTOR//[^a-zA-Z0-9.-]/}-${GITHUB_SHA}
           --with-boot-jdk=${{ steps.bootjdk.outputs.path }}
           --with-jtreg=${{ steps.jtreg.outputs.path }}
           --with-gtest=${{ steps.gtest.outputs.path }}
