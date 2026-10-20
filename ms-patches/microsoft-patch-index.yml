@@ -27,7 +27,6 @@ active-patches:
   - ms-patches/detect-lse
   - ms-patches/connect-timeout
   - ms-patches/get-space
-  - ms-patches/jmx-remote-bootstrap
   - ms-patches/msys2-fixes-1
   - ms-patches/msys2-fixes-2
   - ms-patches/msys2-fixes-3
@@ -40,7 +39,8 @@ active-patches:
 # Patches that we are no longer applying to our releases, as they
 # have been upstreamed and are part of the official OpenJDK sources.
 #
-# upstreamed-patches: 
+# upstreamed-patches:
+  # - ZZ_archive/ms-patches/jmx-remote-bootstrap
   # - ZZ_archive/ms-patches/8334475-fix-jlong-copy
   # - ZZ_archive/ms-patches/use-all-windows-processor-groups
   # - ZZ_archive/ms-patches/large-pages
