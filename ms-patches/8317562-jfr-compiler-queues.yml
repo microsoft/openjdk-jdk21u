@@ -1,0 +1,10 @@
+title: [JFR] Compilation queue statistics
+- work_item: '1784731'
+- jbs_bug: 'JDK-8317562'
+- author: macarte
+- owner: macarte
+- contributors:
+ - macarte
+- details:
+ - add JFR event aggregating compiler queue usage
+- release_note: '[JFR] Compilation queue statistics'
