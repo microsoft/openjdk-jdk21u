@@ -1,0 +1,8 @@
+title: Mark Reserved Stack Area as unsupported on Windows/ARM64
+- work_item: 3015480
+- jbs_bug:
+- author: raneashay
+- owner: raneashay
+- contributors: raneashay
+- details:
+- release_note: Mark Reserved Stack Area as unsupported on Windows/ARM64
