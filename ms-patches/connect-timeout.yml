@@ -1,0 +1,8 @@
+title: Fix ConnectTimeoutWithProxy* tests
+- work_item: 3015462
+- jbs_bug:
+- author: raneashay
+- owner: raneashay
+- contributors: raneashay
+- details:
+- release_note: Fix ConnectTimeoutWithProxy* tests
