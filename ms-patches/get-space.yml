@@ -1,0 +1,8 @@
+title: Fix GetXSpace.java test
+- work_item: 3015477
+- jbs_bug:
+- author: raneashay
+- owner: raneashay
+- contributors: raneashay
+- details:
+- release_note: Fix GetXSpace.java test
