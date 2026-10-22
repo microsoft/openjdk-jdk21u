@@ -1,0 +1,8 @@
+title: Rewrite MultipleLogins test to be Java test
+- work_item: 3015473
+- jbs_bug:
+- author: raneashay
+- owner: raneashay
+- contributors: raneashay
+- details:
+- release_note: Rewrite MultipleLogins test from a shell test to a Java test
