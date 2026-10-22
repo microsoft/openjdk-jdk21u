@@ -1,0 +1,9 @@
+title: Detect LSE on Windows AArch64
+- work_item: 2905855
+- jbs_bug:
+- author: macarte
+- owner: macarte
+- contributors: macarte
+- details:
+- release_note:
+  - Detect LSE on Windows AArch64 and set the UseLSE flag appropriately
