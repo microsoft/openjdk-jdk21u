@@ -1,0 +1,10 @@
+title: Windows AArch64 bug fixes
+- work_item: 2547147
+- jbs_bug:
+- author: kthatipally, macarte, swesonga
+- owner: kthatipally, macarte, swesonga
+- contributors: kthatipally, macarte, swesonga
+- details:
+- release_note:
+  - Fixes serviceability bugs that result in thread contexts being unavailable in hsdb on Windows AArch64
+  - Fixes core dump creation failure on Windows AArch64
