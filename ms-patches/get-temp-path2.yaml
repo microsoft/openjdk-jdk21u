@@ -1,0 +1,11 @@
+title: Get Temp Path 2
+- work_item: 2093754
+- author: macarte
+- owner: macarte
+- contributors:
+  - macarte
+- details:
+  - Use GetTempPath2W/A instead of GetTempPathW/A to get the path of the temporary directory.
+  - only available on Windows 11 and later, so load dynamically and fall back to GetTempPath
+  - if not available
+- release_note: GetTempPath2W/A is used to get the path of the temporary directory on Windows 11 and later.
