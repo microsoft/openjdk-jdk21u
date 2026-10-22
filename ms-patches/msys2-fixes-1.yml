@@ -1,0 +1,8 @@
+title: Add support for MSys2 in test framework
+- work_item: 3015471
+- jbs_bug:
+- author: raneashay
+- owner: raneashay
+- contributors: raneashay
+- details:
+- release_note: Add missing support for MSys2 in test framework
