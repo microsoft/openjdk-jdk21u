@@ -45,6 +45,10 @@ void VM_Version::get_os_cpu_info() {
   if (IsProcessorFeaturePresent(PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE))  _features |= CPU_AES | CPU_SHA1 | CPU_SHA2;
   if (IsProcessorFeaturePresent(PF_ARM_VFP_32_REGISTERS_AVAILABLE))        _features |= CPU_ASIMD;
   // No check for CPU_PMULL, CPU_SVE, CPU_SVE2
+  
+  if (IsProcessorFeaturePresent(PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE)) {
+    _features |= CPU_LSE;
+  }
 
   __int64 dczid_el0 = _ReadStatusReg(0x5807 /* ARM64_DCZID_EL0 */);
 
