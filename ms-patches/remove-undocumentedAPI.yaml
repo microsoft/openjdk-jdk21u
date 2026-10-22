@@ -1,0 +1,10 @@
+title: Remove undocumented Windows APIs
+- work_item: 2250954
+- author: dhanalla
+- owner: dhanalla
+- contributors:
+  - dhanalla
+- details:
+  - Remove undocumented Windows APIs (NtCreateKeyedEvent, NtReleaseKeyedEvent, NtWaitForKeyedEvent) in OpenJDK.
+  - Replicate the functionality of these APIs using documented APIs.
+- release_note: Remove undocumented Windows APIs (NtCreateKeyedEvent, NtReleaseKeyedEvent, NtWaitForKeyedEvent) in OpenJDK.
