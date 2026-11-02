@@ -476,13 +476,13 @@ static u2 utf8_info_index(const InstanceKlass* ik, const Symbol* const target, T
   assert(target != nullptr, "invariant");
   const ConstantPool* cp = ik->constants();
   const int cp_len = cp->length();
-  for (u2 index = 1; index < cp_len; ++index) {
+  for (int index = 1; index < cp_len; ++index) {
     const constantTag tag = cp->tag_at(index);
     if (tag.is_utf8()) {
       const Symbol* const utf8_sym = cp->symbol_at(index);
       assert(utf8_sym != nullptr, "invariant");
       if (utf8_sym == target) {
-        return index;
+        return static_cast<u2>(index);
       }
     }
   }
