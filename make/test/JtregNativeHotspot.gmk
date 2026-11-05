@@ -1514,7 +1514,8 @@ else
   BUILD_HOTSPOT_JTREG_LIBRARIES_LIBS_libTestUnloadedClass += -lpthread
   BUILD_HOTSPOT_JTREG_EXECUTABLES_LIBS_exeGetCreatedJavaVMs := -ljvm -lpthread
 
-  BUILD_HOTSPOT_JTREG_EXCLUDE += libNativeException.c exeGetProcessorInfo.c
+  BUILD_HOTSPOT_JTREG_EXCLUDE += libNativeException.c exeGetProcessorInfo.c \
+      libStackLimit.cpp
 endif
 
 ifeq ($(ASAN_ENABLED), true)
