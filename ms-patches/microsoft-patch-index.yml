@@ -33,6 +33,7 @@ active-patches:
   - ms-patches/multiple-logins
   - ms-patches/reserved-stack-area
   - ms-patches/win-aarch64-TestTrampoline
+  - ms-patches/stack-limit-fix
 
 
 ## Upstreamed Patches
