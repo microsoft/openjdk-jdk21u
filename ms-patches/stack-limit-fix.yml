@@ -1,6 +1,6 @@
 title: Fix stack overflow handler's code for touching pages
 - work_item: 3094300
-- jbs_bug:
+- jbs_bug: 8394484
 - author: raneashay
 - owner: raneashay
 - contributors: raneashay

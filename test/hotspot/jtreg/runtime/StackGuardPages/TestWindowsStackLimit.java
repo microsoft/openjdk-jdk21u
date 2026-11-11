@@ -23,12 +23,13 @@
 
 /*
  * @test
+ * @bug 8394484
  * @summary Verifies that on Windows, HotSpot's access-violation recovery for
  *          an in-Java stack fault advances TEB.StackLimit to cover the newly
  *          committed stack memory.
  * @requires os.family == "windows" & os.arch == "amd64"
  * @enablePreview
- * @run main/othervm/native TestWindowsStackLimit
+ * @run main/othervm/native --enable-native-access=ALL-UNNAMED -Xss1m TestWindowsStackLimit
  */
 
 import java.lang.foreign.FunctionDescriptor;
@@ -41,14 +42,17 @@ import java.lang.invoke.MethodHandle;
 public class TestWindowsStackLimit {
     public static void main(String[] args) throws Throwable {
         System.loadLibrary("StackLimit");
-        MemorySegment symbol = SymbolLookup.loaderLookup()
-                .find("checkStackLimit").orElseThrow();
+        SymbolLookup lookup = SymbolLookup.loaderLookup();
+        MemorySegment segment = lookup.find("checkStackLimit").orElseThrow();
 
-        // Critical downcalls keep the thread in _thread_in_Java, as required
-        // by topLevelExceptionFilter() when committing stack memory.
-        MethodHandle check = Linker.nativeLinker().downcallHandle(
-                symbol, FunctionDescriptor.of(ValueLayout.JAVA_INT),
-                Linker.Option.isTrivial());
+        // `Linker.Option.isTrivial()` keeps the calling thread's state as
+        // `_thread_in_Java` for the whole native call, which is a prerequisite
+        // for the code that commits memory pages in `topLevelExceptionFilter()`
+        Linker.Option option = Linker.Option.isTrivial();
+        FunctionDescriptor desc = FunctionDescriptor.of(ValueLayout.JAVA_INT);
+
+        Linker linker = Linker.nativeLinker();
+        MethodHandle check = linker.downcallHandle(segment, desc, option);
         if ((int) check.invokeExact() != 0) {
             throw new RuntimeException("TEB.StackLimit was not advanced");
         }

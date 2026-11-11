@@ -2647,7 +2647,7 @@ static inline void report_error(Thread* t, DWORD exception_code,
 }
 
 static bool grow_windows_stack_to(address target) {
-  PNT_TIB tib = (PNT_TIB)NtCurrentTeb();
+  const volatile NT_TIB* tib = (NT_TIB*)NtCurrentTeb();
 
   // Touch the page immediately below the current stack limit. Windows handles
   // this as ordinary stack growth: it commits more stack, lowers StackLimit,
@@ -2831,11 +2831,11 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
           }
         }
 #ifdef _WIN64
-        // If it's a legal stack address map the entire region in
-        if (thread->is_in_usable_stack(addr)) {
-          return grow_windows_stack_to(align_down(addr, os::vm_page_size()))
-            ? EXCEPTION_CONTINUE_EXECUTION
-            : EXCEPTION_CONTINUE_SEARCH;
+        // If it's a legal stack address, then commit the region of memory from
+        // the current StackLimit down to `addr`.
+        if (thread->is_in_usable_stack(addr) &&
+            grow_windows_stack_to(align_down(addr, os::vm_page_size()))) {
+          return EXCEPTION_CONTINUE_EXECUTION;
         }
 #endif
         // Null pointer exception.
