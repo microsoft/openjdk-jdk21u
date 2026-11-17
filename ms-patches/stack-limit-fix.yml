@@ -1,0 +1,8 @@
+title: Fix stack overflow handler's code for touching pages
+- work_item: 3094300
+- jbs_bug:
+- author: raneashay
+- owner: raneashay
+- contributors: raneashay
+- details:
+- release_note: Ensure `StackLimit` is updated when touching stack pages
